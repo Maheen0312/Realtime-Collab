@@ -122,7 +122,7 @@ const Home = () => {
 
       if (joinResult.success) {
         toast.success('Successfully joined the room!');
-        navigate(`/room/${newRoomId}?username=${encodeURIComponent(username)}`);
+        navigate(`/room/${roomId}?username=${encodeURIComponent(username)}`);
       } else if (joinResult.status === 'not_found') {
         setError('Room not found or has expired');
         toast.error('Room not found');
@@ -147,13 +147,13 @@ const Home = () => {
   saveUsername(username);
 
   try {
-    const newRoomId = uuidv4(); // ✅ Define it here
+    const roomId = uuidv4(); // ✅ Define it here
     const result = await joinRoom(newRoomId, true);
 
     if (result.success) {
-      localStorage.setItem(`room_${newRoomId}_name`, roomName);
+      localStorage.setItem(`room_${roomId}_name`, roomName);
       toast.success('Room created successfully!');
-      navigate(`/editor/${newRoomId}?username=${encodeURIComponent(username)}`);
+      navigate(`/editor/${roomId}?username=${encodeURIComponent(username)}`);
     }
   } catch (err) {
     console.error('Create error:', err);
