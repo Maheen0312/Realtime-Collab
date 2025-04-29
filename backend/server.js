@@ -10,7 +10,7 @@ const { ACTIONS } = require('./action');
 // Route imports
 const authRoutes = require('./src/routes/auth');
 const protectedRoutes = require("./auth/protected.routes");
-const rooms = require("./src/models/Room");
+const room = require("./src/models/Room");
 
 // === Initialize ===
 const app = express();
@@ -99,28 +99,8 @@ function handleUserLeaving(socket, roomId) {
 io.on('connection', (socket) => {
   console.log(`🔌 Connected: ${socket.id}`);
   socket.data = {};
-  
-  socket.on("join-room", ({ roomId, user }) => {
-    socket.join(roomId);
-  
-    // Add to participant list
-    if (!participants[roomId]) {
-      participants[roomId] = [];
-    }
-  
-    // Avoid duplicates
-    if (!participants[roomId].some(u => u.id === socket.id)) {
-      participants[roomId].push({ name: user.name, id: socket.id });
-    }
-  
-    // Broadcast updated list to room
-    io.to(roomId).emit("participants-updated", participants[roomId]);
-  
-    // Acknowledge join success
-    socket.emit("room-joined", { roomId });
-  });
-  
-  // --- Room joining (video) ---
+
+  // Handle joining room
   socket.on("join-room", ({ roomId, user }) => {
     console.log(`Attempting to join room: ${roomId}`, user);
     
@@ -297,63 +277,26 @@ app.post("/api/chatbot", async (req, res) => {
     let response = "";
     let responded = false;
 
-    const safeSend = (data, status = 200) => {
-      if (!responded) {
-        responded = true;
-        res.status(status).json({ reply: data });
-      }
+    const safeSend = (data) => {
+      if (responded) return;
+      res.status(200).json({ response: data });
+      responded = true;
     };
 
-    const timeout = setTimeout(() => {
-      ollama.kill();
-      safeSend(response.trim() || "AI response timed out", 504);
-    }, 10000);
+    ollama.stdout.on('data', (data) => {
+      response += data.toString();
+    });
 
-    ollama.stdin.write(prompt + "\n");
+    ollama.on("close", () => safeSend(response));
+    ollama.stdin.write(prompt);
     ollama.stdin.end();
-
-    ollama.stdout.on("data", (data) => { response += data.toString(); });
-    ollama.stderr.on("data", (data) => {
-      console.error(`❌ Ollama error: ${data}`);
-      clearTimeout(timeout);
-      safeSend("Error processing your request", 500);
-    });
-
-    ollama.on("close", (code) => {
-      clearTimeout(timeout);
-      if (code !== 0) safeSend("AI process failed", 500);
-      else safeSend(response.trim());
-    });
   } catch (err) {
-    console.error("AI processing error:", err);
-    if (!res.headersSent) {
-      res.status(500).json({ reply: "Internal server error" });
-    }
+    res.status(500).json({ error: "Something went wrong with the AI request" });
   }
 });
 
-// === Health Check ===
-app.get("/health", (req, res) => {
-  res.status(200).json({
-    status: "healthy",
-    timestamp: new Date().toISOString(),
-    uptime: process.uptime()
-  });
-});
-
-// === Home ===
-app.get("/", (req, res) => {
-  res.send("🚀 Server is operational");
-});
-
-// === Global Error Handler ===
-app.use((err, req, res, next) => {
-  console.error("Global error:", err.stack);
-  res.status(500).json({ error: "Internal Server Error" });
-});
-
-// === SERVER START ===
+// === Start the server ===
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
+  console.log(`🚀 Server is running on http://localhost:${PORT}`);
 });
