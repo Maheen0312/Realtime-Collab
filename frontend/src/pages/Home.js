@@ -14,150 +14,7 @@ const Home = () => {
   const [popupType, setPopupType] = useState("");
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
-// Sample client-side code to join a room
 
-// 1. First, check if the room exists using API
-async function checkAndJoinRoom(roomId, username) {
-  try {
-    // First try to check if the room exists via API
-    const response = await fetch(`/api/check-room/${roomId}`);
-    const data = await response.json();
-    
-    if (response.ok && data.exists) {
-      // Room exists, join as regular user
-      joinRoomSocket(roomId, username, false);
-    } else {
-      // Room doesn't exist, try to join as host
-      joinRoomSocket(roomId, username, true);
-    }
-  } catch (error) {
-    console.error("Error checking room:", error);
-    // Fallback to joining as host if API check fails
-    joinRoomSocket(roomId, username, true);
-  }
-}
-
-// 2. Join room function using socket
-function joinRoomSocket(roomId, username, isHost) {
-  // Make sure socket is connected
-  if (!socket || !socket.connected) {
-    showError("Socket not connected. Please refresh the page.");
-    return;
-  }
-
-  // Prepare user data
-  const userData = {
-    name: username,
-    isHost: isHost
-  };
-
-  // Try to join room
-  socket.emit("join-room", { roomId, user: userData });
-
-  // Listen for response events
-  socket.once("room-joined", (data) => {
-    console.log("Successfully joined room:", data);
-    // Navigate to editor or show success message
-    window.location.href = `/editor/${roomId}?username=${encodeURIComponent(username)}`;
-  });
-
-  socket.once("room-not-found", () => {
-    console.log("Room not found event received");
-    // If got room-not-found but we tried as host, something is wrong
-    if (isHost) {
-      showError("Failed to create room. Please try again.");
-    } else {
-      // Try again as host
-      joinRoomSocket(roomId, username, true);
-    }
-  });
-
-  // Add a timeout in case we don't get a response
-  setTimeout(() => {
-    showError("Connection timeout. Please try again.");
-  }, 5000);
-}
-
-// Simple helper to show error
-function showError(message) {
-  const errorDiv = document.getElementById('error-message');
-  if (errorDiv) {
-    errorDiv.textContent = message;
-    errorDiv.style.display = 'block';
-  } else {
-    // Create error element if it doesn't exist
-    const newError = document.createElement('div');
-    newError.id = 'error-message';
-    newError.className = 'error-message';
-    newError.textContent = message;
-    document.querySelector('.room-container').appendChild(newError);
-  }
-}
-
-// If using React, here's how you might implement the join button handler
-function handleJoinRoom() {
-  const roomId = document.getElementById('room-id-input').value;
-  const username = document.getElementById('username-input').value;
-  
-  if (!roomId || !username) {
-    showError("Room ID and username are required");
-    return;
-  }
-  
-  // Hide any previous error
-  const errorDiv = document.getElementById('error-message');
-  if (errorDiv) errorDiv.style.display = 'none';
-  
-  // Show loading indicator
-  const joinButton = document.getElementById('join-button');
-  const originalText = joinButton.textContent;
-  joinButton.textContent = "Joining...";
-  joinButton.disabled = true;
-  
-  // Call the join function
-  checkAndJoinRoom(roomId, username)
-    .catch(err => {
-      console.error("Join error:", err);
-      showError("Error joining room: " + err.message);
-    })
-    .finally(() => {
-      // Reset button
-      joinButton.textContent = originalText;
-      joinButton.disabled = false;
-    });
-}
-
-// For the create room functionality
-function handleCreateRoom() {
-  const roomName = document.getElementById('room-name-input').value;
-  const username = document.getElementById('username-input').value;
-  
-  if (!roomName || !username) {
-    showError("Room name and username are required");
-    return;
-  }
-  
-  // Generate a unique room ID
-  const roomId = generateRoomId();
-  
-  // Show loading indicator
-  const createButton = document.getElementById('create-button');
-  const originalText = createButton.textContent;
-  createButton.textContent = "Creating...";
-  createButton.disabled = true;
-  
-  // Join as host directly
-  joinRoomSocket(roomId, username, true);
-}
-
-// Generate a unique room ID
-function generateRoomId() {
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
-    const r = Math.random() * 16 | 0;
-    const v = c === 'x' ? r : (r & 0x3 | 0x8);
-    return v.toString(16);
-  });
-}
   // Load saved user info when Home loads
   useEffect(() => {
     const token = localStorage.getItem("token");
@@ -206,86 +63,86 @@ function generateRoomId() {
     setLoading(false);
   };
 
-  const joinRoom = () => {
-    if (!roomId.trim() || !name.trim()) {
-      showPopup("Please enter your name and Room ID.", "error");
-      return;
-    }
-  
-    localStorage.setItem("userName", name);
-    localStorage.setItem("currentRoomId", roomId);
-    setLoading(true);
-  
-    fetch(`${API_BASE_URL}/api/check-room/${roomId}`)
-      .then(res => {
-        if (!res.ok) {
-          throw new Error("Room not found. Check the Room ID and try again.");
-        }
-        return res.json();
-      })
-      .then(data => {
-        if (!data.exists) {
-          throw new Error("Room not found. Check the Room ID and try again.");
-        }
-  
-        if (data.roomname) {
-          localStorage.setItem("roomName", data.roomname);
-        }
-  
-        return fetch(`${API_BASE_URL}/api/request-join-room`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${localStorage.getItem("token")}`,
-          },
-          body: JSON.stringify({
-            roomId,
-            name,
-            token: localStorage.getItem("token"),
-          }),
-        });
-      })
-      .then(res => {
-        if (!res.ok) {
-          throw new Error("Error joining room");
-        }
-        return res.json();
-      })
-      .then(data => {
-        console.log("Join response:", data);
-  
-        if (data.success) {
-          if (data.requiresApproval) {
-            showPopup("Request sent to room host. Waiting for approval...", "success");
-  
-            socket.once("join-approved", () => {
-              navigate(`/room/${roomId}`, {
-                state: { name, fromHome: true },
-              });
+ const joinRoom = () => {
+  if (!roomId.trim() || !name.trim()) {
+    showPopup("Please enter your name and Room ID.", "error");
+    return;
+  }
+
+  localStorage.setItem("userName", name);
+  localStorage.setItem("currentRoomId", roomId);
+  setLoading(true);
+
+  fetch(`${API_BASE_URL}/api/check-room/${roomId}`)
+    .then(res => {
+      if (!res.ok) {
+        throw new Error("Room not found. Check the Room ID and try again.");
+      }
+      return res.json();
+    })
+    .then(data => {
+      if (!data.exists) {
+        throw new Error("Room not found. Check the Room ID and try again.");
+      }
+
+      if (data.roomname) {
+        localStorage.setItem("roomName", data.roomname);
+      }
+
+      return fetch(`${API_BASE_URL}/api/request-join-room`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${localStorage.getItem("token")}`,
+        },
+        body: JSON.stringify({
+          roomId,
+          name,
+          token: localStorage.getItem("token"),
+        }),
+      });
+    })
+    .then(res => {
+      if (!res.ok) {
+        throw new Error("Error joining room");
+      }
+      return res.json();
+    })
+    .then(data => {
+      console.log("Join response:", data);
+
+      if (data.success) {
+        if (data.requiresApproval) {
+          showPopup("Request sent to room host. Waiting for approval...", "success");
+
+          socket.once("join-approved", () => {
+            navigate(`/room/${roomId}`, {
+              state: { name, fromHome: true },
             });
-  
-            socket.once("join-rejected", (rejectData) => {
-              showPopup(rejectData.message || "Your request was rejected by the host", "error");
-            });
-          } else {
-            showPopup("Joining room...", "success");
-            setTimeout(() => {
-              navigate(`/room/${roomId}`, {
-                state: { name, fromHome: true },
-              });
-            }, 1000);
-          }
+          });
+
+          socket.once("join-rejected", (rejectData) => {
+            showPopup(rejectData.message || "Your request was rejected by the host", "error");
+          });
         } else {
-          throw new Error(data.message || "Error joining room");
+          showPopup("Joining room...", "success");
+          setTimeout(() => {
+            navigate(`/room/${roomId}`, {
+              state: { name, fromHome: true },
+            });
+          }, 1000);
         }
-      })
-      .catch(err => {
-        console.error("Error joining room:", err);
-        showPopup(err.message || "Error joining room. Please try again.", "error");
-      })
-      .finally(() => setLoading(false));
-  };
-  
+      } else {
+        throw new Error(data.message || "Error joining room");
+      }
+    })
+    .catch(err => {
+      console.error("Error joining room:", err);
+      showPopup(err.message || "Error joining room. Please try again.", "error");
+    })
+    .finally(() => setLoading(false));
+};
+
 
   const handleLogout = () => {
     localStorage.removeItem("token");
@@ -332,7 +189,7 @@ function generateRoomId() {
             />
 
             <button
-              onClick={handleCreateRoom()}
+              onClick={createRoom}
               className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 px-4 rounded-lg mb-4 font-bold transition-all disabled:opacity-50"
               disabled={loading}
             >
@@ -353,7 +210,7 @@ function generateRoomId() {
             />
 
             <button
-              onClick={ handleJoinRoom()}
+              onClick={joinRoom}
               className="w-full bg-green-600 hover:bg-green-700 text-white py-3 px-4 rounded-lg font-bold transition-all disabled:opacity-50"
               disabled={loading}
             >
