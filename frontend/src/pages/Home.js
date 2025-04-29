@@ -148,12 +148,12 @@ const Home = () => {
 
   try {
     const roomId = uuidv4(); // ✅ Define it here
-    const result = await joinRoom(newRoomId, true);
+    const result = await joinRoom(roomId, true);
 
     if (result.success) {
       localStorage.setItem(`room_${roomId}_name`, roomName);
       toast.success('Room created successfully!');
-      navigate(`/editor/${roomId}?username=${encodeURIComponent(username)}`);
+      navigate(`/room/${roomId}?username=${encodeURIComponent(username)}`);
     }
   } catch (err) {
     console.error('Create error:', err);
