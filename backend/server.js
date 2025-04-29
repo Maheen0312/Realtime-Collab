@@ -10,13 +10,14 @@ const { ACTIONS } = require('./action');
 // Route imports
 const authRoutes = require('./src/routes/auth');
 const protectedRoutes = require("./auth/protected.routes");
-const Room = require("./src/models/Room");
+const rooms = require("./src/models/Room");
 
 // === Initialize ===
 const app = express();
 const server = http.createServer(app);
 
 // === Global Helpers ===
+const participants = {};
 const userSocketMap = {}; // socketId --> username mapping
 const rooms = new Map(); // Map<roomId, Map<socketId, userData>>
 
@@ -98,7 +99,27 @@ function handleUserLeaving(socket, roomId) {
 io.on('connection', (socket) => {
   console.log(`🔌 Connected: ${socket.id}`);
   socket.data = {};
-
+  
+  socket.on("join-room", ({ roomId, user }) => {
+    socket.join(roomId);
+  
+    // Add to participant list
+    if (!participants[roomId]) {
+      participants[roomId] = [];
+    }
+  
+    // Avoid duplicates
+    if (!participants[roomId].some(u => u.id === socket.id)) {
+      participants[roomId].push({ name: user.name, id: socket.id });
+    }
+  
+    // Broadcast updated list to room
+    io.to(roomId).emit("participants-updated", participants[roomId]);
+  
+    // Acknowledge join success
+    socket.emit("room-joined", { roomId });
+  });
+  
   // --- Room joining (video) ---
   socket.on("join-room", ({ roomId, user }) => {
     console.log(`Attempting to join room: ${roomId}`, user);

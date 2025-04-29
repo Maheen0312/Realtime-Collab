@@ -32,7 +32,6 @@ const Room = ({ socket, peerId, peerInstance }) => {
   const [showSharePopup, setShowSharePopup] = useState(false);
   const [participants, setParticipants] = useState([]);
   const [isRoomValid, setIsRoomValid] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
   const [darkMode, setDarkMode] = useState(true);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [chatCollapsed, setChatCollapsed] = useState(false);
@@ -130,7 +129,7 @@ const Room = ({ socket, peerId, peerInstance }) => {
       navigate("/login");
       return;
     }
-  
+    
     const userName = stateData.name || localStorage.getItem("userName");
   
     if (!userName) {
@@ -193,6 +192,10 @@ const Room = ({ socket, peerId, peerInstance }) => {
   
 
   useEffect(() => {
+    socket.on("participants-updated", (userList) => {
+      setParticipants(userList); // Update local state
+    });   
+     
     if (!socket || !isRoomValid || !userData.name) return;
   
     const joinRoom = () => {
@@ -264,6 +267,7 @@ const Room = ({ socket, peerId, peerInstance }) => {
       socket.off("room-joined", handleRoomJoined);
       socket.off("room-not-found", handleRoomNotFound);
       socket.off("error", handleError);
+      socket.off("participants-updated");
     };
   }, [socket, isRoomValid, roomId, userData, navigate]);
   
@@ -308,7 +312,7 @@ const Room = ({ socket, peerId, peerInstance }) => {
   }, [socket, isRoomValid, roomId]);
 
   // Toast notification system
-  const [toasts, setToasts] = useState([]);
+  const [toast, setToasts] = useState([]);
   
   const showToast = (message, type = "info") => {
     const id = Date.now();
@@ -583,9 +587,10 @@ const Room = ({ socket, peerId, peerInstance }) => {
         </div>
 
         <div className="flex items-center space-x-3">
-          <span className="text-sm px-3 py-1 bg-gray-700 bg-opacity-40 rounded-md">
-            {participants.length}/6 users
-          </span>
+        <div className="bg-gray-900 text-white p-2 rounded-lg shadow-md text-sm">
+              Participants: {participants.length}
+        </div>
+
           <button 
             className={`px-3 py-2 ${theme.buttonPrimary} rounded-md flex items-center gap-2 text-sm transition-colors duration-200`} 
             onClick={() => setShowSharePopup(true)}
