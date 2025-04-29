@@ -11,7 +11,7 @@ export const initSocket = async () => {
     transports: ['websocket'],
   };
 
-  socket = io('https://online-code-ollab-backend.onrender.com', options);
+  socket = io('https://realtime-collab-backend-mysh.onrender.com', options);
 
   // Now safely listen to events AFTER creating socket
   socket.on('connect', () => {
