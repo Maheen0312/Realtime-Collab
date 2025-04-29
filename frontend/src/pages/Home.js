@@ -15,54 +15,44 @@ const Home = () => {
   const [socket, setSocket] = useState(null);
   const navigate = useNavigate();
   const [popupMessage, setPopupMessage] = useState('');
-  const [popupType, setPopupType] = useState(''); // e.g., "error", "success"
+  const [popupType, setPopupType] = useState('');
 
-  // Get username from localStorage if available
+  // Load username from localStorage
   useEffect(() => {
     const savedUsername = localStorage.getItem('username');
     if (savedUsername) {
       setUsername(savedUsername);
     }
-    socket.on("connect_error", (err) => {
-      setConnectionError(err.message);
-      console.log("Socket connection error:", err);
-    });
-
-    socket.on("disconnect", () => {
-      console.log("Socket disconnected");
-    });
-    return () => {
-      socket.off("connect_error");
-      socket.off("disconnect");
-    };
   }, []);
-  
-  // Initialize socket connection
+
+  // Initialize socket connection only once
   useEffect(() => {
-    const newSocket = io(process.env.REACT_APP_BACKEND_URL || '');
-    
+    const newSocket = io(process.env.REACT_APP_API_URL || '');
+    setSocket(newSocket);
+
     newSocket.on('connect', () => {
       console.log('Socket connected:', newSocket.id);
-      setSocket(newSocket);
     });
-    
+
     newSocket.on('connect_error', (err) => {
       console.error('Socket connection error:', err);
-      setError('Connection error. Please try again later.');
-      toast.error('Server connection error');
+      setConnectionError(err.message);
+      toast.error('Failed to connect to server');
     });
-    
+
+    newSocket.on('disconnect', () => {
+      console.log('Socket disconnected');
+    });
+
     return () => {
       newSocket.disconnect();
     };
   }, []);
 
-  // Function to save username to localStorage
   const saveUsername = (name) => {
     localStorage.setItem('username', name);
   };
 
-  // Function to handle joining a room
   const joinRoom = async (roomIdToJoin, isHost = false) => {
     if (!socket) {
       setError('Socket not connected. Please refresh the page.');
@@ -70,69 +60,44 @@ const Home = () => {
     }
 
     return new Promise((resolve, reject) => {
-      // Setup response listeners first
+      const timeout = setTimeout(() => {
+        cleanup();
+        reject(new Error('Connection timeout'));
+      }, 5000);
+
       const onRoomJoined = (data) => {
-        console.log('Successfully joined room:', data);
+        cleanup();
         resolve(data);
       };
 
       const onRoomNotFound = () => {
-        console.log('Room not found event received');
-        if (isHost) {
-          reject(new Error('Failed to create room'));
-        } else {
-          // If trying as non-host and room not found, resolve with not found status
-          resolve({ status: 'not_found' });
-        }
+        cleanup();
+        resolve({ status: 'not_found' });
       };
 
       const onError = (err) => {
-        console.error('Socket error:', err);
-        reject(new Error(err.message || 'An error occurred'));
+        cleanup();
+        reject(new Error(err.message || 'Socket error'));
       };
 
-      // Set timeout for response
-      const timeout = setTimeout(() => {
-        socket.off('room-joined', onRoomJoined);
-        socket.off('room-not-found', onRoomNotFound);
-        socket.off('error', onError);
-        reject(new Error('Connection timeout'));
-      }, 5000);
-
-      // Add event listeners
-      socket.once('room-joined', (data) => {
-        clearTimeout(timeout);
-        socket.off('room-not-found', onRoomNotFound);
-        socket.off('error', onError);
-        onRoomJoined(data);
-      });
-
-      socket.once('room-not-found', () => {
-        clearTimeout(timeout);
-        socket.off('room-joined', onRoomJoined);
-        socket.off('error', onError);
-        onRoomNotFound();
-      });
-
-      socket.once('error', (err) => {
+      const cleanup = () => {
         clearTimeout(timeout);
         socket.off('room-joined', onRoomJoined);
         socket.off('room-not-found', onRoomNotFound);
-        onError(err);
-      });
+        socket.off('error', onError);
+      };
 
-      // Emit join event
+      socket.once('room-joined', onRoomJoined);
+      socket.once('room-not-found', onRoomNotFound);
+      socket.once('error', onError);
+
       socket.emit('join-room', {
         roomId: roomIdToJoin,
-        user: {
-          name: username,
-          isHost: isHost
-        }
+        user: { name: username, isHost },
       });
     });
   };
 
-  // Handle joining an existing room
   const handleJoinRoom = async () => {
     if (!roomId || !username) {
       setError('Room ID and username are required');
@@ -144,25 +109,20 @@ const Home = () => {
     saveUsername(username);
 
     try {
-      // First check if room exists via API
-      const response = await fetch(`${process.env.REACT_APP_BACKEND_URL || ''}/api/check-room/${roomId}`);
+      const response = await fetch(`${process.env.REACT_APP_API_URL || ''}/api/check-room/${roomId}`);
       const data = await response.json();
-      
       let joinResult;
-      
+
       if (response.ok && data.exists) {
-        // Room exists, join as regular user
         joinResult = await joinRoom(roomId, false);
       } else {
-        // Try to join as host if room doesn't exist
         console.log('Room not found. Trying to create it...');
         joinResult = await joinRoom(roomId, true);
       }
 
       if (joinResult.success) {
-        // Navigate to editor page on success
         toast.success('Successfully joined the room!');
-        navigate(`/editor/${roomId}?username=${encodeURIComponent(username)}`);
+        navigate(`/Editor/${roomId}?username=${encodeURIComponent(username)}`);
       } else if (joinResult.status === 'not_found') {
         setError('Room not found or has expired');
         toast.error('Room not found');
@@ -176,7 +136,6 @@ const Home = () => {
     }
   };
 
-  // Handle creating a new room
   const handleCreateRoom = async () => {
     if (!roomName || !username) {
       setError('Room name and username are required');
@@ -188,19 +147,13 @@ const Home = () => {
     saveUsername(username);
 
     try {
-      // Generate a unique room ID
       const newRoomId = uuidv4();
-      
-      // Join as host
       const result = await joinRoom(newRoomId, true);
-      
+
       if (result.success) {
-        // Save room name in localStorage or send to server
         localStorage.setItem(`room_${newRoomId}_name`, roomName);
-        
-        // Navigate to editor page on success
         toast.success('Room created successfully!');
-        navigate(`/editor/${newRoomId}?username=${encodeURIComponent(username)}`);
+        navigate(`/Editor/${newRoomId}?username=${encodeURIComponent(username)}`);
       }
     } catch (err) {
       console.error('Create error:', err);
@@ -211,7 +164,6 @@ const Home = () => {
     }
   };
 
-  // Handle logout
   const handleLogout = () => {
     localStorage.removeItem('token');
     localStorage.removeItem('userId');
@@ -256,10 +208,9 @@ const Home = () => {
               onChange={(e) => setRoomName(e.target.value)}
               className="w-full p-3 rounded-lg mb-4 text-white border border-white/20 bg-white/10 backdrop-blur-md placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-blue-400"
             />
-
             <button
-               onClick={handleCreateRoom}
-               disabled={isCreating}
+              onClick={handleCreateRoom}
+              disabled={isCreating}
               className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 px-4 rounded-lg mb-4 font-bold transition-all disabled:opacity-50"
             >
               {isCreating ? 'Creating...' : '+ Create Room'}
@@ -277,7 +228,6 @@ const Home = () => {
               onChange={(e) => setRoomId(e.target.value)}
               className="w-full p-3 rounded-lg mb-4 text-white border border-white/20 bg-white/10 backdrop-blur-md placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-green-400"
             />
-
             <button
               onClick={handleJoinRoom}
               disabled={isJoining}
@@ -287,18 +237,19 @@ const Home = () => {
             </button>
           </div>
         </div>
-        <div>
-      {connectionError && <div>{`Connection Error: ${connectionError}`}</div>}
-    </div>
+
+        {connectionError && (
+          <div className="mt-4 text-red-400 text-sm">{`Connection Error: ${connectionError}`}</div>
+        )}
+
         {popupMessage && (
           <div
             className={`fixed bottom-6 right-6 px-4 py-2 rounded-lg shadow-lg text-white backdrop-blur-md ${
-              popupType === "success" ? "bg-green-500/80" : "bg-red-500/80"
+              popupType === 'success' ? 'bg-green-500/80' : 'bg-red-500/80'
             }`}
           >
             {popupMessage}
           </div>
-          
         )}
       </div>
     </>
