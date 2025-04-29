@@ -136,33 +136,34 @@ const Home = () => {
     }
   };
 
-  const handleCreateRoom = async () => {
-    if (!roomName || !username) {
-      setError('Room name and username are required');
-      return;
+ const handleCreateRoom = async () => {
+  if (!roomName || !username) {
+    setError('Room name and username are required');
+    return;
+  }
+
+  setError('');
+  setIsCreating(true);
+  saveUsername(username);
+
+  try {
+    const newRoomId = uuidv4(); // ✅ Define it here
+    const result = await joinRoom(newRoomId, true);
+
+    if (result.success) {
+      localStorage.setItem(`room_${newRoomId}_name`, roomName);
+      toast.success('Room created successfully!');
+      navigate(`/editor/${newRoomId}?username=${encodeURIComponent(username)}`);
     }
+  } catch (err) {
+    console.error('Create error:', err);
+    setError(`Error creating room: ${err.message}`);
+    toast.error('Failed to create room');
+  } finally {
+    setIsCreating(false);
+  }
+};
 
-    setError('');
-    setIsCreating(true);
-    saveUsername(username);
-
-    try {
-      const newRoomId = uuidv4();
-      const result = await joinRoom(newRoomId, true);
-
-      if (result.success) {
-        localStorage.setItem(`room_${newRoomId}_name`, roomName);
-        toast.success('Room created successfully!');
-        navigate(`/room/${newRoomId}?username=${encodeURIComponent(username)}`);
-      }
-    } catch (err) {
-      console.error('Create error:', err);
-      setError(`Error creating room: ${err.message}`);
-      toast.error('Failed to create room');
-    } finally {
-      setIsCreating(false);
-    }
-  };
 
   const handleLogout = () => {
     localStorage.removeItem('token');
