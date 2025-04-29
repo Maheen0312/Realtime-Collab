@@ -9,6 +9,7 @@ const Home = () => {
   const [roomId, setRoomId] = useState('');
   const [roomName, setRoomName] = useState('');
   const [error, setError] = useState('');
+  const [connectionError, setConnectionError] = useState(null);
   const [isJoining, setIsJoining] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [socket, setSocket] = useState(null);
@@ -22,6 +23,18 @@ const Home = () => {
     if (savedUsername) {
       setUsername(savedUsername);
     }
+    socket.on("connect_error", (err) => {
+      setConnectionError(err.message);
+      console.log("Socket connection error:", err);
+    });
+
+    socket.on("disconnect", () => {
+      console.log("Socket disconnected");
+    });
+    return () => {
+      socket.off("connect_error");
+      socket.off("disconnect");
+    };
   }, []);
   
   // Initialize socket connection
@@ -274,7 +287,9 @@ const Home = () => {
             </button>
           </div>
         </div>
-
+        <div>
+      {connectionError && <div>{`Connection Error: ${connectionError}`}</div>}
+    </div>
         {popupMessage && (
           <div
             className={`fixed bottom-6 right-6 px-4 py-2 rounded-lg shadow-lg text-white backdrop-blur-md ${
@@ -283,6 +298,7 @@ const Home = () => {
           >
             {popupMessage}
           </div>
+          
         )}
       </div>
     </>
