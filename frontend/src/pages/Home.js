@@ -4,7 +4,7 @@ import { io } from 'socket.io-client';
 import toast from 'react-hot-toast';
 import { v4 as uuidv4 } from 'uuid';
 
-const RoomJoinPage = () => {
+const Home = () => {
   const [username, setUsername] = useState('');
   const [roomId, setRoomId] = useState('');
   const [roomName, setRoomName] = useState('');
@@ -13,7 +13,9 @@ const RoomJoinPage = () => {
   const [isCreating, setIsCreating] = useState(false);
   const [socket, setSocket] = useState(null);
   const navigate = useNavigate();
-  
+  const [popupMessage, setPopupMessage] = useState('');
+  const [popupType, setPopupType] = useState(''); // e.g., "error", "success"
+
   // Get username from localStorage if available
   useEffect(() => {
     const savedUsername = localStorage.getItem('username');

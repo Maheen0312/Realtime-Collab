@@ -32,6 +32,7 @@ const Room = ({ socket, peerId, peerInstance }) => {
   const [showSharePopup, setShowSharePopup] = useState(false);
   const [participants, setParticipants] = useState([]);
   const [isRoomValid, setIsRoomValid] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
   const [darkMode, setDarkMode] = useState(true);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [chatCollapsed, setChatCollapsed] = useState(false);
