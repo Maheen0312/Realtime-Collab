@@ -4,6 +4,7 @@ import Room from "./pages/Room";
 import Login from "./pages/Login";        
 import Signup from "./pages/Signup";     
 import { SocketProvider } from "./socketContext";
+import { socket } from "./socket"; // Ensure this is the correct path to your socket instance
 import './styles/index.css';
 
 function App() {
@@ -14,7 +15,7 @@ function App() {
           <Route path="/" element={<Home />} />
           <Route path="/login" element={<Login />} />    
           <Route path="/signup" element={<Signup />} />   
-          <Route path="/room/:roomId" element={<Room />} />
+          <Route path="/room/:roomId" element={<Room socket={socket} />} />
         </Routes>
       </Router>
     </SocketProvider>

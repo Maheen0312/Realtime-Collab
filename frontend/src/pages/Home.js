@@ -14,39 +14,23 @@ const Home = () => {
   const [isCreating, setIsCreating] = useState(false);
   const [socket, setSocket] = useState(null);
   const navigate = useNavigate();
-  const [popupMessage, setPopupMessage] = useState('');
-  const [popupType, setPopupType] = useState('');
 
-  // Load username from localStorage
   useEffect(() => {
     const savedUsername = localStorage.getItem('username');
-    if (savedUsername) {
-      setUsername(savedUsername);
-    }
+    if (savedUsername) setUsername(savedUsername);
   }, []);
 
-  // Initialize socket connection only once
   useEffect(() => {
     const newSocket = io(process.env.REACT_APP_API_URL || '');
     setSocket(newSocket);
 
-    newSocket.on('connect', () => {
-      console.log('Socket connected:', newSocket.id);
-    });
-
     newSocket.on('connect_error', (err) => {
-      console.error('Socket connection error:', err);
+      console.error('Socket error:', err);
       setConnectionError(err.message);
       toast.error('Failed to connect to server');
     });
 
-    newSocket.on('disconnect', () => {
-      console.log('Socket disconnected');
-    });
-
-    return () => {
-      newSocket.disconnect();
-    };
+    return () => newSocket.disconnect();
   }, []);
 
   const saveUsername = (name) => {
@@ -54,12 +38,9 @@ const Home = () => {
   };
 
   const joinRoom = async (roomIdToJoin, isHost = false) => {
-    if (!socket) {
-      setError('Socket not connected. Please refresh the page.');
-      return;
-    }
-
     return new Promise((resolve, reject) => {
+      if (!socket) return reject(new Error('Socket not ready'));
+
       const timeout = setTimeout(() => {
         cleanup();
         reject(new Error('Connection timeout'));
@@ -98,9 +79,35 @@ const Home = () => {
     });
   };
 
+  const handleCreateRoom = async () => {
+    if (!username || !roomName) {
+      setError('Name and room name required');
+      return;
+    }
+    setError('');
+    setIsCreating(true);
+    saveUsername(username);
+
+    try {
+      const newRoomId = uuidv4();
+      const result = await joinRoom(newRoomId, true);
+
+      if (result.success) {
+        localStorage.setItem(`room_${newRoomId}_name`, roomName);
+        toast.success('Room created!');
+        navigate(`/room/${newRoomId}?username=${encodeURIComponent(username)}`);
+      }
+    } catch (err) {
+      toast.error('Failed to create room');
+      setError(err.message);
+    } finally {
+      setIsCreating(false);
+    }
+  };
+
   const handleJoinRoom = async () => {
-    if (!roomId || !username) {
-      setError('Room ID and username are required');
+    if (!username || !roomId) {
+      setError('Name and room ID required');
       return;
     }
 
@@ -111,60 +118,27 @@ const Home = () => {
     try {
       const response = await fetch(`${process.env.REACT_APP_API_URL || ''}/api/check-room/${roomId}`);
       const data = await response.json();
-      let joinResult;
 
+      let joinResult;
       if (response.ok && data.exists) {
         joinResult = await joinRoom(roomId, false);
       } else {
-        console.log('Room not found. Trying to create it...');
-        joinResult = await joinRoom(roomId, true);
+        toast.error('Room not found');
+        setError('Room does not exist');
+        return;
       }
 
       if (joinResult.success) {
-        toast.success('Successfully joined the room!');
+        toast.success('Joined room!');
         navigate(`/room/${roomId}?username=${encodeURIComponent(username)}`);
-      } else if (joinResult.status === 'not_found') {
-        setError('Room not found or has expired');
-        toast.error('Room not found');
       }
     } catch (err) {
-      console.error('Join error:', err);
-      setError(`Error joining room: ${err.message}`);
-      toast.error('Failed to join room');
+      toast.error('Error joining room');
+      setError(err.message);
     } finally {
       setIsJoining(false);
     }
   };
-
- const handleCreateRoom = async () => {
-  if (!roomName || !username) {
-    setError('Room name and username are required');
-    return;
-  }
-
-  setError('');
-  setIsCreating(true);
-  saveUsername(username);
-
-  try {
-    const roomId = uuidv4(); // ✅ Define it here
-    const result = await joinRoom(roomId, true);
-
-    if (result.success) {
-      localStorage.setItem(`room_${roomId}_name`, roomName);
-      toast.success('Room created successfully!');
-      navigate(`/room/${roomId}?username=${encodeURIComponent(username)}`);
-    }
-  } catch (err) {
-    console.error('Create error:', err);
-    setError(`Error creating room: ${err.message}`);
-    toast.error('Failed to create room');
-  } finally {
-    setIsCreating(false);
-  }
-};
-
-
   const handleLogout = () => {
     localStorage.removeItem('token');
     localStorage.removeItem('userId');

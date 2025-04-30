@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { useNavigate, useParams, useLocation } from "react-router-dom";
-import { FaShareAlt, FaSignOutAlt, FaFileAlt, FaEdit, FaEye, FaCog, FaTerminal, FaUsers } from "react-icons/fa";
+import { FaShareAlt, FaSignOutAlt, FaFileAlt, FaEdit, FaEye, FaCog, FaTerminal } from "react-icons/fa";
 import { IoMdClose } from "react-icons/io";
 import Editor from "../components/Editor";
 import Terminal from "../components/Terminal";
@@ -24,9 +24,8 @@ const Room = ({ socket, peerId, peerInstance }) => {
   const [clients, setClients] = useState([]);
   const [language, setLanguage] = useState('javascript');
 
-  // Use useMemo to fix the state data dependency issue
   const stateData = useMemo(() => location.state || {}, [location.state]);
-  
+
   const [activeMenu, setActiveMenu] = useState(null);
   const [showTerminal, setShowTerminal] = useState(false);
   const [showSharePopup, setShowSharePopup] = useState(false);
@@ -37,12 +36,11 @@ const Room = ({ socket, peerId, peerInstance }) => {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [chatCollapsed, setChatCollapsed] = useState(false);
   const [userData, setUserData] = useState({
-    name: stateData.name || localStorage.getItem("userName") || "",
+    name: stateData.name || localStorage.getItem("username") || "",
     isHost: stateData.isHost || false,
     roomname: stateData.roomname || localStorage.getItem("roomName") || ""
   });
-  console.log('Room ID:', roomId);
-  // Theme colors based on mode
+
   const theme = {
     bg: darkMode ? "bg-gray-900" : "bg-gray-50",
     text: darkMode ? "text-white" : "text-gray-800",
@@ -56,34 +54,31 @@ const Room = ({ socket, peerId, peerInstance }) => {
     dropdownBg: darkMode ? "bg-gray-800" : "bg-white",
     dropdownHover: darkMode ? "hover:bg-gray-700" : "hover:bg-gray-100",
   };
+
   useEffect(() => {
     const init = async () => {
       socketRef.current = await initSocket();
-      
-      // Handle connection errors
-      socketRef.current.on('connect_error', (err) => {
+
+      socketRef.current.on('connect_error', () => {
         toast.error('Socket connection failed');
         navigate('/');
       });
-      socketRef.current.on('connect_failed', (err) => {
+      socketRef.current.on('connect_failed', () => {
         toast.error('Socket connection failed');
         navigate('/');
       });
 
-      // Join room
       socketRef.current.emit(ACTIONS.JOIN, {
         roomId,
-        username: stateData.name || 'Anonymous',
+        username: userData.name || 'Anonymous',
       });
 
-      // Listen for joined users
       socketRef.current.on(ACTIONS.JOINED, ({ clients, username, socketId }) => {
-        if (username !== stateData.name) {
+        if (username !== userData.name) {
           toast.success(`${username} joined the room`);
         }
         setClients(clients);
-        
-        // Sync code for new user
+
         socketRef.current.emit(ACTIONS.SYNC_CODE, {
           socketId,
           code: codeRef.current,
@@ -91,17 +86,13 @@ const Room = ({ socket, peerId, peerInstance }) => {
         });
       });
 
-      // Listen for disconnected users
       socketRef.current.on(ACTIONS.DISCONNECTED, ({ socketId, username }) => {
         toast.success(`${username} left the room`);
-        setClients((prev) => {
-          return prev.filter((client) => client.socketId !== socketId);
-        });
+        setClients((prev) => prev.filter((client) => client.socketId !== socketId));
       });
 
-      // Listen for language changes
-      socketRef.current.on(ACTIONS.LANGUAGE_CHANGE, ({ language: newLanguage }) => {
-        setLanguage(newLanguage);
+      socketRef.current.on(ACTIONS.LANGUAGE_CHANGE, ({ language: newLang }) => {
+        setLanguage(newLang);
       });
     };
 
@@ -113,96 +104,68 @@ const Room = ({ socket, peerId, peerInstance }) => {
       socketRef.current?.off(ACTIONS.DISCONNECTED);
       socketRef.current?.off(ACTIONS.LANGUAGE_CHANGE);
     };
-  }, [roomId, stateData.name, navigate]);
+  }, [roomId, userData.name, navigate]);
 
-  const handleLanguageChange = (e) => {
-    const newLanguage = e.target.value;
-    setLanguage(newLanguage);
-    socketRef.current.emit(ACTIONS.LANGUAGE_CHANGE, {
-      roomId,
-      language: newLanguage,
-    });
-  };
-  // Initial room validation
   useEffect(() => {
     const token = localStorage.getItem("token");
     if (!token) {
       navigate("/login");
       return;
     }
-    
-    const userName = stateData.name || localStorage.getItem("userName");
-  
+
+    const userName = stateData.name || localStorage.getItem("username");
     if (!userName) {
       navigate("/");
       return;
     }
-  
-    setUserData(prev => ({
+
+    setUserData((prev) => ({
       ...prev,
       name: userName,
       isHost: stateData.isHost || false,
       roomname: stateData.roomname || localStorage.getItem("roomName") || ""
     }));
-  
+
     localStorage.setItem("currentRoomId", roomId);
-  
+
     if (!roomId) {
       navigate("/");
       return;
     }
-  
-    // 🔥 If the user is the host (creator), skip API check
+
     if (stateData.isHost) {
       setIsRoomValid(true);
       setIsLoading(false);
       return;
     }
-  
-    // Otherwise, check room on server
+
     setIsLoading(true);
     fetch(`${API_BASE_URL}/api/check-room/${roomId}`)
-      .then((res) => {
-        if (!res.ok) throw new Error("Room check failed");
-        return res.json();
-      })
-      .then((data) => {
+      .then(res => res.json())
+      .then(data => {
         if (!data.exists) {
-          alert("Invalid Room ID. Redirecting to home.");
+          alert("Invalid Room ID. Redirecting.");
           navigate("/");
         } else {
           setIsRoomValid(true);
           if (data.roomname) {
             localStorage.setItem("roomName", data.roomname);
-            setUserData(prev => ({
-              ...prev,
-              roomname: data.roomname
-            }));
+            setUserData((prev) => ({ ...prev, roomname: data.roomname }));
           }
         }
         setIsLoading(false);
       })
-      .catch((err) => {
-        console.error("Error checking room:", err);
-        alert("Error validating room. Redirecting to home.");
+      .catch(() => {
+        alert("Room validation failed.");
         navigate("/");
         setIsLoading(false);
       });
-  
   }, [roomId, navigate, stateData]);
-  
 
   useEffect(() => {
-    socket.on("participants-updated", (userList) => {
-      setParticipants(userList); // Update local state
-    });   
-     
     if (!socket || !isRoomValid || !userData.name) return;
-  
+
     const joinRoom = () => {
-      console.log("Joining room:", roomId, "with user:", userData.name);
-      
-      // Emit join-room event with all required data
       socket.emit("join-room", {
         roomId,
         user: {
@@ -214,280 +177,106 @@ const Room = ({ socket, peerId, peerInstance }) => {
         },
       });
     };
-  
-    // Handle socket connect event
+
     const handleConnect = () => {
-      console.log("Socket connected/reconnected");
       joinRoom();
     };
-  
-    // Listen for room-joined event
-    const handleRoomJoined = (data) => {
-      console.log("Successfully joined room:", data);
-      setIsLoading(false);
-      // Show success toast if needed
-      showToast(`Successfully joined room: ${userData.roomname || roomId}`, "success");
-    };
-  
-    // Listen for room-not-found event
-    const handleRoomNotFound = () => {
-      console.error("Room not found:", roomId);
-      setIsLoading(false);
-      alert("Room not found or no longer available");
-      navigate("/");
-    };
-  
-    // Handle general socket errors
-    const handleError = (error) => {
-      console.error("Socket error:", error);
-      setIsLoading(false);
-      if (typeof error === 'string') {
-        alert(error);
-      } else if (error.message) {
-        alert(error.message);
-      } else {
-        alert("An error occurred with the connection");
-      }
-      navigate("/");
-    };
-  
-    // Register all listeners
+
     socket.on("connect", handleConnect);
-    socket.on("room-joined", handleRoomJoined);
-    socket.on("room-not-found", handleRoomNotFound);
-    socket.on("error", handleError);
-  
-    // If socket is already connected, join room immediately
-    if (socket.connected) {
-      joinRoom();
-    }
-  
-    // Cleanup function to remove listeners
+    socket.on("room-joined", () => {
+      setIsLoading(false);
+      showToast(`Joined: ${userData.roomname || roomId}`, "success");
+    });
+
+    socket.on("room-not-found", () => {
+      alert("Room not found.");
+      navigate("/");
+    });
+
+    socket.on("error", (error) => {
+      alert(error?.message || "Socket error");
+      navigate("/");
+    });
+
+    if (socket.connected) joinRoom();
+
     return () => {
       socket.off("connect", handleConnect);
-      socket.off("room-joined", handleRoomJoined);
-      socket.off("room-not-found", handleRoomNotFound);
-      socket.off("error", handleError);
-      socket.off("participants-updated");
+      socket.off("room-joined");
+      socket.off("room-not-found");
+      socket.off("error");
     };
   }, [socket, isRoomValid, roomId, userData, navigate]);
-  
-  // The participants and related events handler should stay as a separate useEffect
-  // but update it to handle the room-joined event properly
+
   useEffect(() => {
     if (!socket || !isRoomValid) return;
-  
-    // Setup socket listeners
-    const handleParticipants = (list) => {
-      console.log("Received participants list:", list);
-      setParticipants(list);
-    };
-  
-    const handleUserJoined = (user) => {
-      console.log("User joined:", user);
-      showToast(`${user.name} joined the room`);
-    };
-  
-    const handleUserLeft = (user) => {
-      console.log("User left:", user);
-      showToast(`${user.name} left the room`);
-    };
-  
-    // Register listeners
+
+    const handleParticipants = (list) => setParticipants(list);
+    const handleUserJoined = (user) => showToast(`${user.name} joined`);
+    const handleUserLeft = (user) => showToast(`${user.name} left`);
+
     socket.on("room-participants", handleParticipants);
     socket.on("user-joined", handleUserJoined);
     socket.on("user-left", handleUserLeft);
-    
-    // Clean up listeners when component unmounts
+
     return () => {
-      console.log("Cleaning up socket listeners");
       socket.off("room-participants", handleParticipants);
       socket.off("user-joined", handleUserJoined);
       socket.off("user-left", handleUserLeft);
-      
-      // Ensure we leave the room when unmounting
-      if (socket.connected) {
-        socket.emit("leave-room", { roomId });
-      }
+      if (socket.connected) socket.emit("leave-room", { roomId });
     };
   }, [socket, isRoomValid, roomId]);
 
-  // Toast notification system
-  const [toast, setToasts] = useState([]);
-  
+  const [toastMessages, setToasts] = useState([]);
   const showToast = (message, type = "info") => {
     const id = Date.now();
-    const toast = { id, message, type };
-    setToasts(prev => [...prev, toast]);
-    
-    // Auto-dismiss after 3 seconds
+    setToasts((prev) => [...prev, { id, message, type }]);
     setTimeout(() => {
-      setToasts(prev => prev.filter(t => t.id !== id));
+      setToasts((prev) => prev.filter((t) => t.id !== id));
     }, 3000);
   };
 
-  // Handle file opening
-  const handleFileOpen = (event) => {
-    const file = event.target.files[0];
+  const handleFileOpen = (e) => {
+    const file = e.target.files[0];
     if (!file) return;
-    
+
     const reader = new FileReader();
     reader.onload = (e) => {
-      try {
-        const content = e.target.result;
-        // Use editor ref to set content
-        if (editorRef.current && editorRef.current.setValue) {
-          editorRef.current.setValue(content);
-          showToast(`File "${file.name}" loaded successfully`, "success");
-        }
-      } catch (error) {
-        console.error("Error reading file:", error);
-        showToast(`Failed to open file: ${error.message}`, "error");
+      const content = e.target.result;
+      if (editorRef.current?.setValue) {
+        editorRef.current.setValue(content);
+        showToast(`Loaded "${file.name}"`, "success");
       }
     };
     reader.readAsText(file);
   };
 
-  // Menu action handler
   const handleMenuAction = (action) => {
-    setActiveMenu(null); // Close menu after selection
-    
-    switch (action) {
-      case "save":
-        if (editorRef.current && editorRef.current.getValue) {
-          const content = editorRef.current.getValue();
-          const blob = new Blob([content], { type: "text/plain" });
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement("a");
-          a.href = url;
-          a.download = "code.txt";
-          document.body.appendChild(a);
-          a.click();
-          document.body.removeChild(a);
-          URL.revokeObjectURL(url);
-          showToast("File saved successfully", "success");
-        }
-        break;
-      case "toggleTheme":
-        setDarkMode(prev => !prev);
-        showToast(`Switched to ${darkMode ? "light" : "dark"} mode`, "info");
-        break;
-      case "copy":
-      case "undo":
-      case "redo":
-      case "paste":
-      case "zoomin":
-      case "zoomout":
-      case "find":
-        // Pass these commands to the editor if it has these methods
-        if (editorRef.current && editorRef.current[action]) {
-          editorRef.current[action]();
-        } else {
-          showToast(`Editor action '${action}' not implemented`, "warning");
-        }
-        break;
-      case "settings":
-        // Implement settings dialog here
-        showToast("Settings dialog coming soon!", "info");
-        break;
-      default:
-        console.log(`Action '${action}' not implemented`);
+    setActiveMenu(null);
+    if (action === "save" && editorRef.current?.getValue) {
+      const content = editorRef.current.getValue();
+      const blob = new Blob([content], { type: "text/plain" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "code.txt";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      showToast("Saved", "success");
+    }
+    if (action === "toggleTheme") {
+      setDarkMode((prev) => !prev);
     }
   };
 
-  // Toggle terminal visibility
-  const toggleTerminal = () => {
-    setShowTerminal(prev => !prev);
-    setActiveMenu(null); // Close the menu
-  };
-
-  // Leave room function
+  const toggleTerminal = () => setShowTerminal((prev) => !prev);
   const leaveRoom = () => {
-    if (socket && socket.connected) {
-      socket.emit("leave-room", { roomId });
-    }
-    // Clear room from localStorage
+    if (socket?.connected) socket.emit("leave-room", { roomId });
     localStorage.removeItem("currentRoomId");
     navigate("/");
   };
-
-  // Copy room ID to clipboard
-  const copyRoomId = () => {
-    navigator.clipboard.writeText(roomId)
-      .then(() => {
-        showToast("Room ID copied to clipboard!", "success");
-        setShowSharePopup(false);
-      })
-      .catch(err => {
-        console.error("Failed to copy room ID:", err);
-        showToast("Failed to copy room ID. Please try again.", "error");
-      });
-  };
-
-  // Share room ID via different platforms
-  const shareRoomId = (platform) => {
-    const roomURL = `${window.location.origin}/join/${roomId}`;
-    let shareURL;
-    
-    switch (platform) {
-      case "whatsapp":
-        shareURL = `https://wa.me/?text=Join%20my%20coding%20room%20with%20ID:%20${roomId}%20at%20${encodeURIComponent(roomURL)}`;
-        window.open(shareURL, "_blank");
-        break;
-      case "email":
-        shareURL = `mailto:?subject=Join%20my%20coding%20room&body=Join%20my%20coding%20room%20with%20ID:%20${roomId}%20at%20${encodeURIComponent(roomURL)}`;
-        window.open(shareURL, "_blank");
-        break;
-      case "twitter":
-        shareURL = `https://twitter.com/intent/tweet?text=Join%20my%20coding%20room%20with%20ID:%20${roomId}&url=${encodeURIComponent(roomURL)}`;
-        window.open(shareURL, "_blank");
-        break;
-      default:
-        navigator.share({
-          title: "Join my coding room",
-          text: `Join my coding room with ID: ${roomId}`,
-          url: roomURL
-        }).catch(err => console.error("Share failed:", err));
-    }
-    setShowSharePopup(false);
-  };
-  
-  // Get participant data for VideoChat
-  const getParticipantData = () => {
-    const participantData = {};
-    participants.forEach(p => {
-      participantData[p.socketId] = p.name;
-    });
-    return participantData;
-  };
-
-  // Keyboard shortcuts
-  useEffect(() => {
-    const handleKeyDown = (e) => {
-      // Ctrl/Cmd + key shortcuts
-      if ((e.ctrlKey || e.metaKey) && !e.shiftKey) {
-        switch (e.key.toLowerCase()) {
-          case 's':
-            e.preventDefault();
-            handleMenuAction("save");
-            break;
-          case '`':
-            e.preventDefault();
-            toggleTerminal();
-            break;
-          case 'd':
-            e.preventDefault();
-            setDarkMode(prev => !prev);
-            break;
-          default:
-            break;
-        }
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
   
   return (
     <div className={`flex flex-col h-screen w-full ${theme.bg} ${theme.text} font-sans transition-colors duration-300`}>
