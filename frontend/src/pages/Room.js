@@ -535,7 +535,6 @@ const Room = ({ socket, peerId, peerInstance }) => {
               onClick={toggleTerminal}
               title="Close terminal"
             >
-              <IoMdClose />
             </button>
           </div>
           <Terminal socket={socket} darkMode={darkMode} />
