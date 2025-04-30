@@ -5,6 +5,9 @@ import Login from "./pages/Login";
 import Signup from "./pages/Signup";     
 import { SocketProvider } from "./socketContext";
 import './styles/index.css';
+import { io } from "socket.io-client";
+const socket = io(process.env.REACT_APP_API_URL || "");
+
 
 function App() {
   return (

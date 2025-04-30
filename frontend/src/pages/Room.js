@@ -277,6 +277,44 @@ const Room = ({ socket, peerId, peerInstance }) => {
     localStorage.removeItem("currentRoomId");
     navigate("/");
   };
+  const handleLanguageChange = (e) => {
+    const newLanguage = e.target.value;
+    setLanguage(newLanguage);
+    socketRef.current?.emit(ACTIONS.LANGUAGE_CHANGE, {
+      roomId,
+      language: newLanguage,
+    });
+  };
+  const getParticipantData = () => {
+    const data = {};
+    participants.forEach(p => {
+      data[p.socketId] = p.name;
+    });
+    return data;
+  };
+  const copyRoomId = () => {
+    navigator.clipboard.writeText(roomId)
+      .then(() => showToast("Room ID copied!", "success"))
+      .catch(() => showToast("Copy failed", "error"));
+  };
+  const shareRoomId = (platform) => {
+    const roomURL = `${window.location.origin}/room/${roomId}`;
+    let url = '';
+  
+    switch (platform) {
+      case 'whatsapp':
+        url = `https://wa.me/?text=Join%20my%20room%20at%20${roomURL}`;
+        break;
+      case 'email':
+        url = `mailto:?subject=Join%20Room&body=Join%20my%20room%20at%20${roomURL}`;
+        break;
+      default:
+        url = roomURL;
+    }
+  
+    window.open(url, '_blank');
+  };
+        
   
   return (
     <div className={`flex flex-col h-screen w-full ${theme.bg} ${theme.text} font-sans transition-colors duration-300`}>

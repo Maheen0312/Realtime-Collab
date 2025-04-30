@@ -14,6 +14,13 @@ const Home = () => {
   const [isCreating, setIsCreating] = useState(false);
   const [socket, setSocket] = useState(null);
   const navigate = useNavigate();
+  const [popupMessage, setPopupMessage] = useState('');
+const [popupType, setPopupType] = useState(''); // 'success' or 'error'
+
+// Example usage:
+setPopupMessage('Joined successfully!');
+setPopupType('success');
+
 
   useEffect(() => {
     const savedUsername = localStorage.getItem('username');
