@@ -14,9 +14,9 @@ function App() {
     <SocketProvider>
       <Router>
         <Routes>
-          <Route path="/home" element={<Home />} />
           <Route path="/login" element={<Login />} />    
           <Route path="/signup" element={<Signup />} />   
+          <Route path="/home" element={<Home />} />
           <Route path="/room/:roomId" element={<Room socket={socket} />} />
         </Routes>
       </Router>
