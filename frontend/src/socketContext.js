@@ -1,15 +1,10 @@
-import React, { createContext, useContext } from "react";
-import socket from "./socket"; // Import default socket
+import React, { createContext } from 'react';
 
-const SocketContext = createContext(null);
-
-export const useSocket = () => {
-  return useContext(SocketContext);
-};
+export const SocketContext = createContext();
 
 export const SocketProvider = ({ children }) => {
   return (
-    <SocketContext.Provider value={socket}>
+    <SocketContext.Provider value={{}}>
       {children}
     </SocketContext.Provider>
   );
