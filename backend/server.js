@@ -38,7 +38,10 @@ const corsOptions = {
   allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"]
 };
 
-app.use(cors(corsOptions));
+app.use(cors({
+  origin: process.env.FRONTEND_URL,
+  credentials: true
+}));
 app.options('*', cors(corsOptions));
 
 // === MongoDB Connection ===
