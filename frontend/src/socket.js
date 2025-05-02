@@ -8,7 +8,8 @@ export const initSocket = async () => {
     forceNew: true,
     reconnectionAttempts: Infinity,
     timeout: 10000,
-    transports: ['websocket'],
+    transports: ['websocket','polling'],
+    pingInterval: 25000, // default is 25000
   };
 
   socket = io('https://realtime-collab-backend-mysh.onrender.com', options);
