@@ -9,7 +9,7 @@ import UserList from '../components/UserList';
 import { useSocket } from '../socketContext';
 import { ACTIONS } from '../action';
 import toast from 'react-hot-toast';
-
+import { initSocket } from '../socket';
 const API_BASE_URL = process.env.REACT_APP_API_URL || "http://localhost:5000";
 
 const Room = () => {
@@ -22,7 +22,7 @@ const Room = () => {
   const codeRef = useRef(null);
   const [clients, setClients] = useState([]);
   const [language, setLanguage] = useState('javascript');
-
+  const socketRef = useRef();
 
   const stateData = useMemo(() => location.state || {}, [location.state]);
 
