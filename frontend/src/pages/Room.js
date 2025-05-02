@@ -1,28 +1,28 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { useNavigate, useParams, useLocation } from "react-router-dom";
 import { FaShareAlt, FaSignOutAlt, FaFileAlt, FaEdit, FaEye, FaCog, FaTerminal } from "react-icons/fa";
-import { IoMdClose } from "react-icons/io";
 import Editor from "../components/Editor";
 import Terminal from "../components/Terminal";
 import VideoChat from "../components/VideoChat";
 import Chatbot from "../components/Chatbot";
 import UserList from '../components/UserList';
-import { initSocket } from '../socket';
+import { useSocket } from '../socketContext';
 import { ACTIONS } from '../action';
 import toast from 'react-hot-toast';
 
 const API_BASE_URL = process.env.REACT_APP_API_URL || "http://localhost:5000";
 
-const Room = ({ socket, peerId, peerInstance }) => {
+const Room = () => {
   const fileInputRef = useRef(null);
   const editorRef = useRef(null);
   const navigate = useNavigate();
   const { roomId } = useParams();
   const location = useLocation();
-  const socketRef = useRef(null);
+  const socket = useSocket();  // ✅ Use socket from context
   const codeRef = useRef(null);
   const [clients, setClients] = useState([]);
   const [language, setLanguage] = useState('javascript');
+
 
   const stateData = useMemo(() => location.state || {}, [location.state]);
 

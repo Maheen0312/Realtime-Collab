@@ -15,12 +15,7 @@ const Home = () => {
   const [socket, setSocket] = useState(null);
   const navigate = useNavigate();
   const [popupMessage, setPopupMessage] = useState('');
-const [popupType, setPopupType] = useState(''); // 'success' or 'error'
-
-// Example usage:
-setPopupMessage('Joined successfully!');
-setPopupType('success');
-
+  const [popupType, setPopupType] = useState(''); // 'success' or 'error'
 
   useEffect(() => {
     const savedUsername = localStorage.getItem('username');
@@ -137,6 +132,8 @@ setPopupType('success');
 
       if (joinResult.success) {
         toast.success('Joined room!');
+        setPopupMessage('Joined successfully!');
+        setPopupType('success');
         navigate(`/room/${roomId}?username=${encodeURIComponent(username)}`);
       }
     } catch (err) {
@@ -146,6 +143,7 @@ setPopupType('success');
       setIsJoining(false);
     }
   };
+
   const handleLogout = () => {
     localStorage.removeItem('token');
     localStorage.removeItem('userId');
