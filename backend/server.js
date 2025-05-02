@@ -59,13 +59,10 @@ app.use("/api", protectedRoutes);
 // === Socket.IO Setup ===
 const io = new Server(server, {
   cors: {
-    origin: [ "http://localhost:3000", process.env.FRONTEND_URL ].filter(Boolean),
-    methods: ["GET", "POST"],
-    credentials: true,
-  },
-  pingInterval: 25000,  // default is 25000
-  pingTimeout: 60000,   // default is 5000 (too low for cold starts on Render)
-  transports: ['websocket'], // force WebSocket
+    origin: process.env.FRONTEND_URL,
+    methods: ['GET', 'POST'],
+    credentials: true
+  }
 });
 
 // Helper function to handle user leaving
