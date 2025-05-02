@@ -6,12 +6,12 @@ import { cpp } from '@codemirror/lang-cpp';
 import { java } from '@codemirror/lang-java';
 import { html } from '@codemirror/lang-html';
 import { oneDark } from '@codemirror/theme-one-dark';
-import LanguageSelector from './LanguageSelector';  
+import LanguageSelector from './LanguageSelector';
 
 const Editor = ({ socketRef, roomId, codeRef }) => {
   const editorRef = useRef(null);
   const [output, setOutput] = useState("");
-  const [language, setLanguage] = useState('javascript');  
+  const [language, setLanguage] = useState('javascript');
   const iframeRef = useRef(null);
 
   useEffect(() => {
@@ -122,10 +122,21 @@ const Editor = ({ socketRef, roomId, codeRef }) => {
     }
   };
 
+  const handleSaveCode = () => {
+    const blob = new Blob([codeRef.current || ''], { type: 'text/plain;charset=utf-8' });
+    const filename = `code-${language}.${language === 'javascript' ? 'js' : language === 'python' ? 'py' : language === 'cpp' ? 'cpp' : language === 'java' ? 'java' : 'txt'}`;
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="code-mirror-wrapper flex flex-col h-full">
-      <LanguageSelector onLanguageChange={setLanguage} />  {/* Add Language Selector */}
-      
+      <LanguageSelector onLanguageChange={setLanguage} />
+
       <div className="flex-1">
         <CodeMirror
           value={codeRef.current || ''}
@@ -137,12 +148,20 @@ const Editor = ({ socketRef, roomId, codeRef }) => {
         />
       </div>
 
-      <button
-        onClick={handleRunCode}
-        className="mt-4 bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded w-fit"
-      >
-        ▶️ Run Code
-      </button>
+      <div className="mt-4 flex flex-wrap gap-4">
+        <button
+          onClick={handleRunCode}
+          className="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded"
+        >
+          ▶️ Run Code
+        </button>
+        <button
+          onClick={handleSaveCode}
+          className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
+        >
+          💾 Save Code
+        </button>
+      </div>
 
       <div className="mt-4 p-4 bg-black rounded-lg text-green-400 overflow-auto min-h-[100px]">
         <h3 className="font-bold text-white mb-2">Output:</h3>

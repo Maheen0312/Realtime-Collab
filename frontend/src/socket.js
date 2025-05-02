@@ -1,19 +1,18 @@
 // src/socket.js
 import { io } from 'socket.io-client';
 
-let socket = null; // define it globally
+let socket = null;
 
 export const initSocket = async () => {
   const options = {
-    'force new connection': true,
-    reconnectionAttempt: 'Infinity',
+    forceNew: true,
+    reconnectionAttempts: Infinity,
     timeout: 10000,
     transports: ['websocket'],
   };
 
   socket = io('https://realtime-collab-backend-mysh.onrender.com', options);
 
-  // Now safely listen to events AFTER creating socket
   socket.on('connect', () => {
     console.log('✅ Connected to server:', socket.id);
   });
@@ -23,7 +22,7 @@ export const initSocket = async () => {
   });
 
   socket.on('connect_error', (err) => {
-    console.error('Connection error:', err.message);
+    console.error('⚠️ Connection error:', err.message);
   });
 
   return socket;
