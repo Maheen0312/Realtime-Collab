@@ -39,6 +39,8 @@ const Home = () => {
     localStorage.setItem('username', name);
   };
 
+  const validateRoomId = (roomId) => /^[a-zA-Z0-9-_]+$/.test(roomId);
+
   const joinRoom = async (roomIdToJoin, isHost = false) => {
     return new Promise((resolve, reject) => {
       if (!socket) return reject(new Error('Socket not ready'));
@@ -113,6 +115,11 @@ const Home = () => {
       return;
     }
 
+    if (!validateRoomId(roomId)) {
+      setError('Invalid Room ID format');
+      return;
+    }
+
     setError('');
     setIsJoining(true);
     saveUsername(username);
@@ -149,6 +156,13 @@ const Home = () => {
     localStorage.removeItem('userId');
     navigate('/login');
   };
+
+  useEffect(() => {
+    if (popupMessage) {
+      const timer = setTimeout(() => setPopupMessage(''), 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [popupMessage]);
 
   return (
     <>
