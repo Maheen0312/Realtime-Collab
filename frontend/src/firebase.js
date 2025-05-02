@@ -1,7 +1,13 @@
-import firebase from "firebase/app";
-import "firebase/firestore";
+// src/firebase.js
 
-// Firebase config
+// Import only what you need (modular SDK)
+import { initializeApp } from 'firebase/app';
+import { getFirestore } from 'firebase/firestore';
+import { getAuth } from 'firebase/auth';
+import { getDatabase } from 'firebase/database'; // For Realtime DB (optional)
+import { getStorage } from 'firebase/storage';   // For file uploads (optional)
+
+// Firebase configuration
 const firebaseConfig = {
   apiKey: "AIzaSyDl7aQVZ_3ruCVGxSXlOxLRrbD2qsPze2w",
   authDomain: "code-collaboration-20fdf.firebaseapp.com",
@@ -13,13 +19,13 @@ const firebaseConfig = {
 };
 
 // Initialize Firebase
-if (!firebase.apps.length) {
-  firebase.initializeApp(firebaseConfig);
-} else {
-  firebase.app(); // Use the default app if already initialized
-}
+const app = initializeApp(firebaseConfig);
 
-// Initialize Firestore
-const firestore = firebase.firestore();
+// Initialize services
+const firestore = getFirestore(app);
+const auth = getAuth(app);
+const realtimeDB = getDatabase(app);
+const storage = getStorage(app);
 
-export { firestore };
+// Export services
+export { app, firestore, auth, realtimeDB, storage };
