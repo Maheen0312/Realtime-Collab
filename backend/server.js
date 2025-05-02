@@ -65,7 +65,6 @@ const io = new Server(server, {
   transports: ['websocket'], // force WebSocket
 });
 
-
 // Helper function to handle user leaving
 function handleUserLeaving(socket, roomId) {
   if (!roomId || !rooms.has(roomId)) return;
