@@ -3,7 +3,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import AgoraRTC from 'agora-rtc-sdk-ng';
 
 const APP_ID = '712f72b0c5ed413299df9bab345526f3';
-const TOKEN = '6ed91906cf0842a5b6e693bde9b8d208'; // or null if app certificate is disabled
+const TOKEN = '007eJxTYIi/ofH43AvByd8+LYhgZ3ZTZ4vi2Xaaf90+vdlO92NVvy1XYDA3NEozN0oySDZNTTExNDaytExJs0xKTDI2MTU1MkszvrBHNKMhkJFB+9RXVkYGCATxORhKUotLivLzcxkYAMryIVw='; // or null if app certificate is disabled
 const CHANNEL = 'testroom'; // or dynamic per room
 
 const AgoraVideoChat = () => {
