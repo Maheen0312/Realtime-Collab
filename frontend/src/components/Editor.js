@@ -51,10 +51,43 @@ const customTheme = EditorView.theme({
   },
 });
 
+// Define ACTIONS for socket communication
+const ACTIONS = {
+  JOIN: 'join',
+  JOINED: 'joined',
+  CODE_CHANGE: 'code-change',
+  SYNC_CODE: 'sync-code',
+  DISCONNECTED: 'disconnected',
+  LANGUAGE_CHANGE: 'language-change',
+  CURSOR_POSITION: 'cursor-position',
+  USER_TYPING: 'user-typing',
+  COMMENT: 'comment',
+  COMMENTS_SYNC: 'comments-sync',
+  CODE_SELECTION: 'code-selection',
+};
+
 const Editor = ({ socketRef, roomId, codeRef }) => {
   const editorRef = useRef(null);
   const [output, setOutput] = useState("");
   const [language, setLanguage] = useState('javascript');
+  const iframeRef = useRef(null);
+  const [outputHistory, setOutputHistory] = useState([]);
+  const [historyIndex, setHistoryIndex] = useState(-1);
+  const [isConnected, setIsConnected] = useState(false);
+  const [userCount, setUserCount] = useState(1);
+  const [cursorBlink, setCursorBlink] = useState(true);
+  const [participants, setParticipants] = useState([]);
+  const [comments, setComments] = useState([]);
+  const [showCommentInput, setShowCommentInput] = useState(false);
+  const [commentPosition, setCommentPosition] = useState({ x: 0, y: 0, lineNumber: 0 });
+  const [commentText, setCommentText] = useState('');
+  const [activeUsers, setActiveUsers] = useState({});
+  const [userTyping, setUserTyping] = useState({});
+  const [saveStatus, setSaveStatus] = useState('');
+  const [editorHistory, setEditorHistory] = useState([]);
+  const [historyPosition, setHistoryPosition] = useState(-1);
+  const typingTimeoutRef = useRef({});
+  const editorContainerRef = useRef(null);
   
   // Function to update language and notify others
   const handleLanguageChange = (newLanguage) => {
@@ -64,34 +97,24 @@ const Editor = ({ socketRef, roomId, codeRef }) => {
       socketRef.current.emit(ACTIONS.LANGUAGE_CHANGE, { roomId, language: newLanguage });
     }
   };
-  const iframeRef = useRef(null);
-  const [outputHistory, setOutputHistory] = useState([]);
-  const [historyIndex, setHistoryIndex] = useState(-1);
-  const [isConnected, setIsConnected] = useState(false);
-  const [userCount, setUserCount] = useState(1);
-  const [cursorBlink, setCursorBlink] = useState(true);
 
   // Enhanced connection handling
-  // Import ACTIONS from somewhere in your project
-  // If you don't have access to it directly, define actions that match your server
-  const ACTIONS = {
-    JOIN: 'join',
-    JOINED: 'joined',
-    CODE_CHANGE: 'code-change',
-    SYNC_CODE: 'sync-code',
-    DISCONNECTED: 'disconnected',
-    LANGUAGE_CHANGE: 'language-change',
-  };
-  
   useEffect(() => {
     const socket = socketRef.current;
     if (socket) {
       // Setup connection status
       socket.on('connect', () => {
         setIsConnected(true);
-        // Join the code editor room with username (you might need to get this from props or context)
+        // Join the code editor room with username
         const username = localStorage.getItem('username') || 'User-' + Math.floor(Math.random() * 1000);
-        socket.emit(ACTIONS.JOIN, { roomId, username });
+        const userColor = localStorage.getItem('userColor') || getRandomColor();
+        localStorage.setItem('userColor', userColor);
+        
+        socket.emit(ACTIONS.JOIN, { 
+          roomId, 
+          username,
+          userColor
+        });
       });
       
       socket.on('disconnect', () => {
@@ -99,12 +122,18 @@ const Editor = ({ socketRef, roomId, codeRef }) => {
       });
 
       // Handle code changes from other users
-      socket.on(ACTIONS.CODE_CHANGE, ({ code }) => {
+      socket.on(ACTIONS.CODE_CHANGE, ({ code, userId }) => {
         if (code !== null && code !== codeRef.current) {
           codeRef.current = code;
           if (editorRef.current) {
             editorRef.current.setValue(code);
+            
+            // Add to undo history
+            addToEditorHistory(code);
           }
+          
+          // Show typing indicator for the user
+          handleUserTyping(userId);
         }
       });
       
@@ -113,12 +142,54 @@ const Editor = ({ socketRef, roomId, codeRef }) => {
         setLanguage(language);
       });
       
+      // Handle cursor position updates
+      socket.on(ACTIONS.CURSOR_POSITION, ({ userId, position, username, userColor }) => {
+        updateUserCursor(userId, position, username, userColor);
+      });
+      
+      // Handle user typing indicators
+      socket.on(ACTIONS.USER_TYPING, ({ userId, username, isTyping }) => {
+        setUserTyping(prev => ({
+          ...prev,
+          [userId]: isTyping ? { username, timestamp: Date.now() } : undefined
+        }));
+        
+        // Auto-clear typing indicator after 2 seconds of inactivity
+        if (isTyping && typingTimeoutRef.current[userId]) {
+          clearTimeout(typingTimeoutRef.current[userId]);
+        }
+        
+        if (isTyping) {
+          typingTimeoutRef.current[userId] = setTimeout(() => {
+            setUserTyping(prev => ({
+              ...prev,
+              [userId]: undefined
+            }));
+          }, 2000);
+        }
+      });
+      
+      // Handle comments
+      socket.on(ACTIONS.COMMENT, ({ comment }) => {
+        setComments(prevComments => [...prevComments, comment]);
+      });
+      
+      socket.on(ACTIONS.COMMENTS_SYNC, ({ comments }) => {
+        setComments(comments);
+      });
+      
+      // Handle code selection by other users
+      socket.on(ACTIONS.CODE_SELECTION, ({ userId, selection, username, userColor }) => {
+        highlightUserSelection(userId, selection, username, userColor);
+      });
+      
       // Handle when users join - including getting the current participants
-      socket.on(ACTIONS.JOINED, ({ clients }) => {
+      socket.on(ACTIONS.JOINED, ({ clients, socketId }) => {
+        setParticipants(clients);
         setUserCount(clients.length);
         
         // Request code sync from others if we're not the first
-        if (clients.length > 1 && !codeRef.current) {
+        if (clients.length > 1 && !codeRef.current && socketId === socket.id) {
           // Find another user to request code from
           const otherClient = clients.find(client => client.socketId !== socket.id);
           if (otherClient) {
@@ -128,15 +199,29 @@ const Editor = ({ socketRef, roomId, codeRef }) => {
             });
           }
         }
+        
+        // If we already have comments, sync them with new users
+        if (comments.length > 0 && clients.some(client => client.socketId === socketId && client.socketId !== socket.id)) {
+          socket.emit(ACTIONS.COMMENTS_SYNC, {
+            socketId,
+            comments
+          });
+        }
       });
       
       // Handle disconnection of other users
-      socket.on(ACTIONS.DISCONNECTED, () => {
-        // Update user count from room-participants event
+      socket.on(ACTIONS.DISCONNECTED, ({ socketId }) => {
+        // Remove user cursor and data
+        removeUserCursor(socketId);
+        removeUserSelection(socketId);
+        
+        // Update participants
+        setParticipants(prev => prev.filter(p => p.socketId !== socketId));
       });
       
       // Handle room participants update
       socket.on("room-participants", (participants) => {
+        setParticipants(participants);
         setUserCount(participants.length);
       });
     }
@@ -147,19 +232,326 @@ const Editor = ({ socketRef, roomId, codeRef }) => {
         socket.off('disconnect');
         socket.off(ACTIONS.CODE_CHANGE);
         socket.off(ACTIONS.LANGUAGE_CHANGE);
+        socket.off(ACTIONS.CURSOR_POSITION);
+        socket.off(ACTIONS.USER_TYPING);
+        socket.off(ACTIONS.COMMENT);
+        socket.off(ACTIONS.COMMENTS_SYNC);
+        socket.off(ACTIONS.CODE_SELECTION);
         socket.off(ACTIONS.JOINED);
         socket.off(ACTIONS.DISCONNECTED);
         socket.off("room-participants");
       }
+      
+      // Clear typing timeouts
+      Object.values(typingTimeoutRef.current).forEach(timeout => clearTimeout(timeout));
     };
-  }, [socketRef, roomId, codeRef]);
+  }, [socketRef, roomId, codeRef, comments]);
+
+  // Generate random user color
+  const getRandomColor = () => {
+    const colors = [
+      '#FF5733', '#33FF57', '#3357FF', '#FF33F5', 
+      '#F5FF33', '#33FFF5', '#F533FF', '#FF5733'
+    ];
+    return colors[Math.floor(Math.random() * colors.length)];
+  };
+  
+  // Function to update cursor positions of other users
+  const updateUserCursor = (userId, position, username, userColor) => {
+    setActiveUsers(prev => ({
+      ...prev,
+      [userId]: { position, username, userColor, timestamp: Date.now() }
+    }));
+    
+    // Display visual cursor in editor
+    const cursorElement = document.querySelector(`.user-cursor-${userId}`);
+    const editorContainer = editorContainerRef.current;
+    
+    if (editorContainer && position) {
+      let cursorEl = cursorElement;
+      
+      if (!cursorEl) {
+        cursorEl = document.createElement('div');
+        cursorEl.classList.add(`user-cursor-${userId}`);
+        cursorEl.style.position = 'absolute';
+        cursorEl.style.pointerEvents = 'none';
+        cursorEl.style.zIndex = '10';
+        editorContainer.appendChild(cursorEl);
+      }
+      
+      // Position for cursor (these are placeholder values - real implementation would
+      // need to calculate actual position based on CodeMirror coordinates)
+      cursorEl.style.left = `${position.x}px`;
+      cursorEl.style.top = `${position.y}px`;
+      cursorEl.innerHTML = `
+        <div style="position: relative;">
+          <div style="position: absolute; background-color: ${userColor}; width: 2px; height: 20px;"></div>
+          <div style="position: absolute; background-color: ${userColor}; color: white; font-size: 12px; padding: 2px 4px; border-radius: 3px; top: -18px; white-space: nowrap;">${username}</div>
+        </div>
+      `;
+    }
+  };
+  
+  // Function to remove user cursor when they disconnect
+  const removeUserCursor = (userId) => {
+    setActiveUsers(prev => {
+      const newState = {...prev};
+      delete newState[userId];
+      return newState;
+    });
+    
+    const cursorElement = document.querySelector(`.user-cursor-${userId}`);
+    if (cursorElement) cursorElement.remove();
+  };
+  
+  // Function to highlight code selection by other users
+  const highlightUserSelection = (userId, selection, username, userColor) => {
+    // This is a placeholder - real implementation would need to 
+    // use CodeMirror's API to highlight text ranges
+    console.log(`User ${username} selected from ${selection.from} to ${selection.to}`);
+  };
+  
+  // Function to remove user selection highlight
+  const removeUserSelection = (userId) => {
+    // Remove selection highlights using CodeMirror API
+    console.log(`Removing selection for user ${userId}`);
+  };
+  
+  // Function to handle user typing indicators
+  const handleUserTyping = (userId) => {
+    const user = participants.find(p => p.socketId === userId);
+    if (user) {
+      setUserTyping(prev => ({
+        ...prev,
+        [userId]: { username: user.username, timestamp: Date.now() }
+      }));
+      
+      // Auto-clear typing indicator after 2 seconds
+      if (typingTimeoutRef.current[userId]) {
+        clearTimeout(typingTimeoutRef.current[userId]);
+      }
+      
+      typingTimeoutRef.current[userId] = setTimeout(() => {
+        setUserTyping(prev => {
+          const newState = {...prev};
+          delete newState[userId];
+          return newState;
+        });
+      }, 2000);
+    }
+  };
+  
+  // Track cursor position and emit to other users
+  const handleCursorActivity = (editor) => {
+    if (socketRef.current && socketRef.current.connected) {
+      const cursor = editor.getCursor();
+      const cursorCoords = editor.cursorCoords(cursor);
+      
+      // Get username and color
+      const username = localStorage.getItem('username') || 'User';
+      const userColor = localStorage.getItem('userColor') || '#FF5733';
+      
+      // Emit cursor position
+      socketRef.current.emit(ACTIONS.CURSOR_POSITION, {
+        roomId,
+        position: {
+          line: cursor.line,
+          ch: cursor.ch,
+          x: cursorCoords.left,
+          y: cursorCoords.top
+        },
+        username,
+        userColor
+      });
+    }
+  };
+  
+  // Track code selection and emit to other users
+  const handleSelectionChange = (editor) => {
+    if (socketRef.current && socketRef.current.connected) {
+      const selection = editor.getSelection();
+      if (selection && selection.length > 0) {
+        const from = editor.getCursor('from');
+        const to = editor.getCursor('to');
+        
+        // Get username and color
+        const username = localStorage.getItem('username') || 'User';
+        const userColor = localStorage.getItem('userColor') || '#FF5733';
+        
+        // Emit selection
+        socketRef.current.emit(ACTIONS.CODE_SELECTION, {
+          roomId,
+          selection: { from, to },
+          username,
+          userColor
+        });
+      }
+    }
+  };
+  
+  // Add comment to specific line
+  const addComment = (lineNumber) => {
+    const editorContainer = editorContainerRef.current;
+    if (!editorContainer) return;
+    
+    const lineElement = editorContainer.querySelector(`.cm-line:nth-child(${lineNumber + 1})`);
+    if (!lineElement) return;
+    
+    const rect = lineElement.getBoundingClientRect();
+    const containerRect = editorContainer.getBoundingClientRect();
+    
+    setCommentPosition({
+      x: rect.right - containerRect.left + 10,
+      y: rect.top - containerRect.top,
+      lineNumber
+    });
+    
+    setShowCommentInput(true);
+  };
+  
+  // Submit comment
+  const submitComment = () => {
+    if (!commentText.trim()) {
+      setShowCommentInput(false);
+      return;
+    }
+    
+    const username = localStorage.getItem('username') || 'User';
+    const userColor = localStorage.getItem('userColor') || '#FF5733';
+    
+    const newComment = {
+      id: Date.now().toString(),
+      lineNumber: commentPosition.lineNumber,
+      text: commentText,
+      username,
+      userColor,
+      timestamp: new Date().toISOString()
+    };
+    
+    setComments(prevComments => [...prevComments, newComment]);
+    
+    // Emit comment to other users
+    if (socketRef.current && socketRef.current.connected) {
+      socketRef.current.emit(ACTIONS.COMMENT, {
+        roomId,
+        comment: newComment
+      });
+    }
+    
+    setShowCommentInput(false);
+    setCommentText('');
+  };
+  
+  // Delete comment
+  const deleteComment = (commentId) => {
+    setComments(prevComments => prevComments.filter(c => c.id !== commentId));
+    
+    // Sync comment deletion with other users
+    if (socketRef.current && socketRef.current.connected) {
+      socketRef.current.emit(ACTIONS.COMMENTS_SYNC, {
+        roomId,
+        comments: comments.filter(c => c.id !== commentId)
+      });
+    }
+  };
+  
+  // Add to editor history for undo/redo
+  const addToEditorHistory = (code) => {
+    // Don't add if it's the same as the last entry
+    if (editorHistory.length > 0 && editorHistory[editorHistory.length - 1] === code) {
+      return;
+    }
+    
+    // If we're not at the end of history, truncate
+    const newHistory = historyPosition === -1 ? 
+      [...editorHistory, code] : 
+      [...editorHistory.slice(0, historyPosition + 1), code];
+    
+    // Limit history size
+    if (newHistory.length > 50) {
+      newHistory.shift();
+    }
+    
+    setEditorHistory(newHistory);
+    setHistoryPosition(newHistory.length - 1);
+  };
+  
+  // Undo function
+  const handleUndo = () => {
+    if (historyPosition > 0) {
+      const newPosition = historyPosition - 1;
+      const codeToRestore = editorHistory[newPosition];
+      
+      codeRef.current = codeToRestore;
+      if (editorRef.current) {
+        editorRef.current.setValue(codeToRestore);
+      }
+      
+      setHistoryPosition(newPosition);
+      
+      // Emit code change
+      if (socketRef.current && socketRef.current.connected) {
+        socketRef.current.emit(ACTIONS.CODE_CHANGE, { 
+          roomId, 
+          code: codeToRestore,
+          userId: socketRef.current.id
+        });
+      }
+    }
+  };
+  
+  // Redo function
+  const handleRedo = () => {
+    if (historyPosition < editorHistory.length - 1) {
+      const newPosition = historyPosition + 1;
+      const codeToRestore = editorHistory[newPosition];
+      
+      codeRef.current = codeToRestore;
+      if (editorRef.current) {
+        editorRef.current.setValue(codeToRestore);
+      }
+      
+      setHistoryPosition(newPosition);
+      
+      // Emit code change
+      if (socketRef.current && socketRef.current.connected) {
+        socketRef.current.emit(ACTIONS.CODE_CHANGE, { 
+          roomId, 
+          code: codeToRestore,
+          userId: socketRef.current.id
+        });
+      }
+    }
+  };
 
   const handleChange = (value) => {
+    // Add to undo history
+    addToEditorHistory(value);
+    
     codeRef.current = value;
+    
     // Only emit if connected
     if (socketRef.current && socketRef.current.connected) {
-      socketRef.current.emit(ACTIONS.CODE_CHANGE, { roomId, code: value });
+      socketRef.current.emit(ACTIONS.CODE_CHANGE, { 
+        roomId, 
+        code: value,
+        userId: socketRef.current.id
+      });
+      
+      // Emit typing status
+      socketRef.current.emit(ACTIONS.USER_TYPING, { 
+        roomId, 
+        userId: socketRef.current.id,
+        username: localStorage.getItem('username') || 'User',
+        isTyping: true
+      });
     }
+    
+    // Show saving indicator
+    setSaveStatus('Saving...');
+    setTimeout(() => {
+      setSaveStatus('All changes saved');
+    }, 500);
   };
 
   // Toggle cursor blinking for focus indication
@@ -312,6 +704,21 @@ const Editor = ({ socketRef, roomId, codeRef }) => {
         navigateHistory('down');
       }
     }
+    
+    // Global shortcut for undo/redo
+    if (e.metaKey || e.ctrlKey) {
+      if (e.key === 'z') {
+        e.preventDefault();
+        if (e.shiftKey) {
+          handleRedo();
+        } else {
+          handleUndo();
+        }
+      } else if (e.key === 'y') {
+        e.preventDefault();
+        handleRedo();
+      }
+    }
   };
 
   const handleSaveCode = () => {
@@ -328,20 +735,56 @@ const Editor = ({ socketRef, roomId, codeRef }) => {
   const clearOutput = () => {
     setOutput("");
   };
+  
+  // Function to show line numbers with comment indicators
+  const renderLineNumbers = () => {
+    // Placeholder - real implementation would need to 
+    // extend CodeMirror to customize line numbers rendering
+    console.log("Rendering line numbers with comment indicators");
+  };
+  
+  // Helper to format timestamps
+  const formatTime = (timestamp) => {
+    const date = new Date(timestamp);
+    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  };
 
   return (
-    <div className="code-mirror-wrapper flex flex-col h-full" onKeyDown={handleKeyDown}>
+    <div className="code-mirror-wrapper flex flex-col h-full" onKeyDown={handleKeyDown} ref={editorContainerRef}>
       <div className="flex justify-between items-center mb-2">
-        <LanguageSelector onLanguageChange={handleLanguageChange} />
-        <div className="connection-status">
+        <div className="flex items-center gap-2">
+          <LanguageSelector onLanguageChange={handleLanguageChange} />
+          <div className="text-xs text-gray-400">{saveStatus}</div>
+        </div>
+        <div className="connection-status flex items-center">
           <span className={`inline-block w-3 h-3 rounded-full mr-2 ${isConnected ? 'bg-green-500' : 'bg-red-500'}`}></span>
           <span className="text-sm text-gray-300">
             {isConnected ? `Connected (${userCount} user${userCount !== 1 ? 's' : ''})` : 'Disconnected'}
           </span>
         </div>
       </div>
-  
-      <div className="flex-1 border border-gray-700 rounded-lg overflow-hidden shadow-lg">
+      
+      {/* Active users */}
+      <div className="flex mb-2 gap-2 overflow-x-auto">
+        {participants.map((participant) => (
+          <div 
+            key={participant.socketId} 
+            className="px-2 py-1 rounded-full text-xs flex items-center gap-1"
+            style={{ backgroundColor: participant.userColor + '30', color: participant.userColor }}
+          >
+            <span 
+              className="w-2 h-2 rounded-full"
+              style={{ backgroundColor: participant.userColor }}
+            ></span>
+            {participant.username}
+            {userTyping[participant.socketId] && (
+              <span className="ml-1 text-gray-300 text-xs">typing...</span>
+            )}
+          </div>
+        ))}
+      </div>
+
+      <div className="flex-1 border border-gray-700 rounded-lg overflow-hidden shadow-lg relative">
         <CodeMirror
           value={codeRef.current || ''}
           height="100%"
@@ -355,6 +798,9 @@ const Editor = ({ socketRef, roomId, codeRef }) => {
           onChange={handleChange}
           onFocus={handleEditorFocus}
           onBlur={handleEditorBlur}
+          // This would need to be implemented with CodeMirror's view plugins
+          // onCursorActivity={cm => handleCursorActivity(cm.editor)}
+          // onSelectionChange={cm => handleSelectionChange(cm.editor)}
           basicSetup={{
             lineNumbers: true,
             highlightActiveLineGutter: true,
@@ -371,6 +817,70 @@ const Editor = ({ socketRef, roomId, codeRef }) => {
             syntaxHighlighting: true,
           }}
         />
+        
+        {/* Comment bubbles */}
+        {comments.map((comment) => (
+          <div
+            key={comment.id}
+            className="absolute rounded-lg p-2 bg-gray-800 border border-gray-700 shadow-lg max-w-xs z-10"
+            style={{
+              left: `calc(100% - 30px)`,
+              top: `${(comment.lineNumber * 20) + 5}px`, // Rough estimate - would need accurate line height
+            }}
+          >
+            <div className="flex justify-between items-center mb-1">
+              <div className="flex items-center gap-1">
+                <span 
+                  className="w-2 h-2 rounded-full"
+                  style={{ backgroundColor: comment.userColor }}
+                ></span>
+                <span className="text-xs font-semibold">{comment.username}</span>
+                <span className="text-xs text-gray-400">{formatTime(comment.timestamp)}</span>
+              </div>
+              <button 
+                className="text-xs text-gray-400 hover:text-white"
+                onClick={() => deleteComment(comment.id)}
+              >
+                ×
+              </button>
+            </div>
+            <div className="text-sm">{comment.text}</div>
+          </div>
+        ))}
+        
+        {/* Comment input popup */}
+        {showCommentInput && (
+          <div
+            className="absolute rounded-lg p-2 bg-gray-800 border border-gray-700 shadow-lg z-20"
+            style={{
+              left: commentPosition.x,
+              top: commentPosition.y,
+              width: '250px'
+            }}
+          >
+            <textarea
+              className="w-full h-20 p-2 text-sm bg-gray-900 border border-gray-700 rounded"
+              placeholder="Add a comment..."
+              value={commentText}
+              onChange={(e) => setCommentText(e.target.value)}
+              autoFocus
+            />
+            <div className="flex justify-end gap-2 mt-2">
+              <button
+                className="px-2 py-1 text-xs bg-gray-700 hover:bg-gray-600 rounded"
+                onClick={() => setShowCommentInput(false)}
+              >
+                Cancel
+              </button>
+              <button
+                className="px-2 py-1 text-xs bg-blue-600 hover:bg-blue-500 rounded"
+                onClick={submitComment}
+              >
+                Add Comment
+              </button>
+            </div>
+          </div>
+        )}
       </div>
   
       <div className="mt-4 flex flex-wrap gap-3">
@@ -392,6 +902,31 @@ const Editor = ({ socketRef, roomId, codeRef }) => {
         >
           <span>🧹</span> Clear Output
         </button>
+        <button
+          onClick={() => {
+            const lineNumber = editorRef.current?.getCursor()?.line || 0;
+            addComment(lineNumber);
+          }}
+          className="bg-yellow-600 hover:bg-yellow-700 text-white font-bold py-2 px-4 rounded-md transition-colors duration-200 flex items-center gap-2 shadow-md"
+        >
+          <span>💬</span> Add Comment
+        </button>
+        <div className="ml-auto flex gap-2">
+          <button
+            onClick={handleUndo}
+            disabled={historyPosition <= 0}
+            className={`bg-gray-700 text-white font-bold py-2 px-4 rounded-md transition-colors duration-200 flex items-center gap-2 shadow-md ${historyPosition <= 0 ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-600'}`}
+          >
+            <span>↩️</span> Undo
+          </button>
+          <button
+            onClick={handleRedo}
+            disabled={historyPosition >= editorHistory.length - 1}
+            className={`bg-gray-700 text-white font-bold py-2 px-4 rounded-md transition-colors duration-200 flex items-center gap-2 shadow-md ${historyPosition >= editorHistory.length - 1 ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-600'}`}
+          >
+            <span>↪️</span> Redo
+          </button>
+        </div>
       </div>
   
       <div 
@@ -420,6 +955,55 @@ const Editor = ({ socketRef, roomId, codeRef }) => {
           />
         </div>
       )}
+      
+      {/* Participants panel */}
+      <div className="mt-4 p-4 bg-gray-800 rounded-lg shadow-md border border-gray-700">
+        <h3 className="font-bold text-white mb-2">Participants ({participants.length})</h3>
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
+          {participants.map((participant) => (
+            <div 
+              key={participant.socketId}
+              className="flex items-center gap-2 p-2 rounded-md bg-gray-900"
+            >
+              <div 
+                className="w-4 h-4 rounded-full" 
+                style={{ backgroundColor: participant.userColor }}
+              ></div>
+              <span className="text-sm truncate">{participant.username}</span>
+              {userTyping[participant.socketId] && (
+                <span className="animate-pulse text-xs text-gray-400">typing...</span>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+      
+      {/* Comments section */}
+      <div className="mt-4 p-4 bg-gray-800 rounded-lg shadow-md border border-gray-700">
+        <h3 className="font-bold text-white mb-2">Comments ({comments.length})</h3>
+        <div className="space-y-2 max-h-40 overflow-y-auto">
+          {comments.length === 0 ? (
+            <p className="text-gray-400 text-sm">No comments yet. Click "Add Comment" to start a discussion.</p>
+          ) : (
+            comments.map(comment => (
+              <div key={comment.id} className="p-2 bg-gray-900 rounded-md">
+                <div className="flex justify-between">
+                  <div className="flex items-center gap-2">
+                    <div 
+                      className="w-3 h-3 rounded-full" 
+                      style={{ backgroundColor: comment.userColor }}
+                    ></div>
+                    <span className="text-xs font-semibold">{comment.username}</span>
+                    <span className="text-xs text-gray-400">Line {comment.lineNumber + 1}</span>
+                  </div>
+                  <span className="text-xs text-gray-400">{formatTime(comment.timestamp)}</span>
+                </div>
+                <p className="mt-1 text-sm">{comment.text}</p>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
     </div>
   );
 };

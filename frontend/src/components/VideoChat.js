@@ -16,19 +16,26 @@ const AgoraVideoChat = () => {
   const remoteVideoRef = useRef(null);
   const localTrackRef = useRef({});
 
+  const positionRef = useRef({ x: 0, y: 0 });
+
   useEffect(() => {
     clientRef.current = AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' });
-    return () => leaveChannel();
+
+    return () => {
+      leaveChannel();
+    };
   }, []);
 
   const joinChannel = async () => {
     const client = clientRef.current;
+
     await client.join(APP_ID, CHANNEL, TOKEN, null);
     const [audioTrack, videoTrack] = await AgoraRTC.createMicrophoneAndCameraTracks();
     localTrackRef.current = { audioTrack, videoTrack };
 
     videoTrack.play(localVideoRef.current);
     await client.publish([audioTrack, videoTrack]);
+
     setJoined(true);
 
     client.on('user-published', async (user, mediaType) => {
@@ -67,7 +74,7 @@ const AgoraVideoChat = () => {
   const toggleVideo = () => {
     const videoTrack = localTrackRef.current.videoTrack;
     if (videoTrack) {
-      videoTrack.setEnabled(!videoEnabled);
+      videoEnabled ? videoTrack.setEnabled(false) : videoTrack.setEnabled(true);
       setVideoEnabled(!videoEnabled);
     }
   };
@@ -75,7 +82,7 @@ const AgoraVideoChat = () => {
   const toggleAudio = () => {
     const audioTrack = localTrackRef.current.audioTrack;
     if (audioTrack) {
-      audioTrack.setEnabled(!audioEnabled);
+      audioEnabled ? audioTrack.setEnabled(false) : audioTrack.setEnabled(true);
       setAudioEnabled(!audioEnabled);
     }
   };
@@ -109,65 +116,64 @@ const AgoraVideoChat = () => {
     });
   };
 
+  const onDrag = (e) => {
+    const box = e.target;
+    const x = e.clientX - positionRef.current.x;
+    const y = e.clientY - positionRef.current.y;
+    box.style.left = `${x}px`;
+    box.style.top = `${y}px`;
+  };
+
+  const onMouseDown = (e) => {
+    positionRef.current.x = e.clientX - e.target.offsetLeft;
+    positionRef.current.y = e.clientY - e.target.offsetTop;
+    document.addEventListener('mousemove', onDrag);
+    document.addEventListener('mouseup', () => {
+      document.removeEventListener('mousemove', onDrag);
+    }, { once: true });
+  };
+
   return (
-    <div className="w-full h-screen bg-gray-900 text-white flex flex-col items-center justify-center">
-      {/* Controls */}
-      <div className="mt-6 bg-gray-800 rounded-full py-2 px-6 flex gap-4 justify-center items-center shadow-lg">
+    <div className="p-4 bg-gray-900 text-white rounded-lg relative">
+      <h2 className="text-xl font-bold mb-4">Agora Video Chat</h2>
+
+      <div className="mb-4">
         {!joined ? (
-          <button
-            onClick={joinChannel}
-            className="px-4 py-2 bg-green-600 hover:bg-green-700 rounded-full transition"
-          >
-            Join
+          <button onClick={joinChannel} className="px-4 py-2 bg-green-600 hover:bg-green-700 rounded mr-2">
+            Join Video Chat
           </button>
         ) : (
+          <button onClick={leaveChannel} className="px-4 py-2 bg-red-600 hover:bg-red-700 rounded mr-2">
+            Leave Video Chat
+          </button>
+        )}
+
+        {joined && (
           <>
-            <button
-              onClick={leaveChannel}
-              className="px-4 py-2 bg-red-600 hover:bg-red-700 rounded-full transition"
-            >
-              Leave
+            <button onClick={toggleVideo} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded mr-2">
+              {videoEnabled ? 'Turn Video Off' : 'Turn Video On'}
             </button>
-      {/* Video Area */}
-      <div className="flex justify-center items-center gap-4 w-full px-4 flex-wrap mt-6">
-        {/* Local Video */}
-        <div className="relative w-[200px] h-[200px] bg-black rounded-lg shadow-lg overflow-hidden border border-blue-500">
-          <div ref={localVideoRef} className="w-full h-full object-cover" />
-          <span className="absolute bottom-2 left-2 text-sm bg-black bg-opacity-50 px-2 py-1 rounded text-white">
-            You
-          </span>
-        </div>
-
-        {/* Remote Video */}
-        <div className="relative w-[200px] h-[200px] bg-black rounded-lg shadow-lg overflow-hidden border border-green-500">
-          <div ref={remoteVideoRef} className="w-full h-full object-cover" />
-          <span className="absolute bottom-2 left-2 text-sm bg-black bg-opacity-50 px-2 py-1 rounded text-white">
-            Remote
-          </span>
-        </div>
-      </div>
-
-      
-            <button
-              onClick={toggleVideo}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-full transition"
-            >
-              {videoEnabled ? 'Video Off' : 'Video On'}
+            <button onClick={toggleAudio} className="px-4 py-2 bg-yellow-600 hover:bg-yellow-700 rounded mr-2">
+              {audioEnabled ? 'Mute Audio' : 'Unmute Audio'}
             </button>
-            <button
-              onClick={toggleAudio}
-              className="px-4 py-2 bg-yellow-600 hover:bg-yellow-700 text-black rounded-full transition"
-            >
-              {audioEnabled ? 'Mute' : 'Unmute'}
-            </button>
-            <button
-              onClick={shareScreen}
-              className="px-4 py-2 bg-purple-600 hover:bg-purple-700 rounded-full transition"
-            >
+            <button onClick={shareScreen} className="px-4 py-2 bg-purple-600 hover:bg-purple-700 rounded">
               Share Screen
             </button>
           </>
         )}
+      </div>
+
+      <div className="w-full h-[500px] relative">
+        <div
+          ref={localVideoRef}
+          onMouseDown={onMouseDown}
+          className="absolute w-64 h-48 bg-black rounded shadow-md cursor-move top-0 left-0 z-20"
+        />
+
+        <div
+          ref={remoteVideoRef}
+          className="absolute right-0 bottom-0 w-64 h-48 bg-black rounded shadow-md"
+        />
       </div>
     </div>
   );
