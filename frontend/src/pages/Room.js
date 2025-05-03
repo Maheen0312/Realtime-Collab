@@ -31,7 +31,7 @@ const Room = () => {
   const socketRef = useRef();
 
   const stateData = useMemo(() => location.state || {}, [location.state]);
-  const [showVideoChat, setShowVideoChat] = useState(false);
+  const [showVideoChat, setShowVideoChat] = useState(true);
 
   const toggleVideoChat = () => {
     setShowVideoChat(prev => !prev);
@@ -173,7 +173,7 @@ const Room = () => {
         socketRef.current.off('error');
       }
     };
-  }, [roomId,userId, userData.name, language, navigate]);
+  }, [roomId, userId, userData.name, language, navigate]);
 
   // Initial authentication and room validation
   useEffect(() => {
@@ -477,9 +477,9 @@ const Room = () => {
         </div>
 
         <div className="flex items-center space-x-3">
-        <div className="bg-gray-900 text-white p-2 rounded-lg shadow-md text-sm">
-              Participants: {clients.length}
-        </div>
+          <div className="bg-gray-900 text-white p-2 rounded-lg shadow-md text-sm">
+            Participants: {clients.length}
+          </div>
 
           <button 
             className={`px-3 py-2 ${theme.buttonPrimary} rounded-md flex items-center gap-2 text-sm transition-colors duration-200`} 
@@ -503,71 +503,134 @@ const Room = () => {
         </div>
       </div>
 
-      {/* Main content area */}
-      <div className="flex flex-grow gap-2 p-2 overflow-hidden">
-
-        {/* Editor - central */}
-        <div className="editor-page">
-      <div className="sidebar">
-        <div className="sidebar-header">
-          <h3>Connected Users</h3>
-        </div>
-        <div className="connected-users">
-          <UserList clients={clients} />
-        </div>
-      </div>
-      <div className="editor-container">
-        <div className="editor-header">
-          <div className="language-dropdown">
-            <select 
-              className="language-select" 
-              value={language} 
-              onChange={handleLanguageChange}
+      {/* Main content area - 3-column layout */}
+      <div className="flex flex-grow h-full overflow-hidden">
+        {/* Left sidebar - User list */}
+        {!sidebarCollapsed && (
+          <div className={`flex flex-col w-1/6 ${theme.sidebar} border-r ${theme.border} transition-all duration-300`}>
+            <div className="p-3 border-b border-gray-700 font-semibold">
+              <h3 className="text-center">Connected Users</h3>
+            </div>
+            <div className="flex-grow overflow-y-auto p-2">
+              <UserList clients={clients} />
+            </div>
+            
+            {/* Collapse sidebar button */}
+            <button 
+              className="absolute left-[16.66%] top-1/2 w-6 h-10 bg-gray-700 rounded-r-md flex items-center justify-center"
+              onClick={() => setSidebarCollapsed(true)}
+              title="Collapse sidebar"
             >
-              <option value="javascript">JavaScript</option>
-              <option value="python">Python</option>
-              <option value="cpp">C++</option>
-              <option value="java">Java</option>
-            </select>
+              <span>←</span>
+            </button>
+          </div>
+        )}
+        
+        {/* Collapsed sidebar button */}
+        {sidebarCollapsed && (
+          <div className="relative">
+            <button 
+              className="absolute left-0 top-1/2 w-6 h-10 bg-gray-700 rounded-r-md flex items-center justify-center"
+              onClick={() => setSidebarCollapsed(false)}
+              title="Expand sidebar"
+            >
+              <span>→</span>
+            </button>
+          </div>
+        )}
+
+        {/* Center - Editor */}
+        <div className={`flex flex-col ${sidebarCollapsed ? 'w-3/4' : 'w-7/12'} ${chatCollapsed ? 'w-11/12' : ''} transition-all duration-300`}>
+          {/* Editor header with language selector */}
+          <div className={`flex items-center justify-between p-2 ${theme.navbar} border-b ${theme.border}`}>
+            <div className="flex items-center">
+              <label htmlFor="language-select" className="mr-2 text-sm">Select Language:</label>
+              <select 
+                id="language-select"
+                className={`px-2 py-1 rounded ${darkMode ? 'bg-gray-700 border-gray-600' : 'bg-white border-gray-300'} border`}
+                value={language} 
+                onChange={handleLanguageChange}
+              >
+                <option value="javascript">JavaScript</option>
+                <option value="python">Python</option>
+                <option value="cpp">C++</option>
+                <option value="java">Java</option>
+                <option value="html">HTML</option>
+                <option value="css">CSS</option>
+              </select>
+            </div>
+            
+            <div className="flex space-x-2">
+              <button className={`px-3 py-1 ${theme.buttonSuccess} rounded text-sm flex items-center gap-1`}>
+                <span className="text-lg">▶</span> Run Code
+              </button>
+              <button className={`px-3 py-1 ${theme.buttonPrimary} rounded text-sm flex items-center gap-1`}>
+                <span>💾</span> Save Code
+              </button>
+            </div>
+          </div>
+          
+          {/* Editor component */}
+          <div className="flex-grow overflow-hidden">
+            <Editor 
+              socketRef={socketRef}
+              roomId={roomId}
+              language={language}
+              codeRef={codeRef}
+            />
           </div>
         </div>
-        <Editor 
-          socketRef={socketRef}
-          roomId={roomId}
-          language={language}
-          codeRef={codeRef}
-        />
-      </div>
-    </div>
 
-        {/* Right sidebar - collapsible */}
+        {/* Right sidebar - Video chat + text chat */}
         {!chatCollapsed && (
-          <div className={`relative flex flex-col w-1/5 ${theme.sidebar} rounded-xl border ${theme.border} overflow-hidden transition-all duration-300`}>
+          <div className={`flex flex-col w-1/4 ${theme.sidebar} border-l ${theme.border} transition-all duration-300`}>
+            {/* Video chat section */}
+            <div className="flex flex-col h-1/2 border-b border-gray-700">
+              <div className={`p-3 border-b ${theme.border} flex justify-between items-center`}>
+                <h3 className="font-semibold">Agora Video Chat</h3>
+                <button 
+                  className={`px-3 py-1 ${showVideoChat ? theme.buttonPrimary : 'bg-gray-600'} rounded-md text-sm`}
+                  onClick={toggleVideoChat}
+                >
+                  {showVideoChat ? 'Hide Video' : 'Show Video'}
+                </button>
+              </div>
+              
+              {showVideoChat && (
+                <div className="flex-grow p-2 overflow-hidden">
+                  <div className="h-full flex flex-col">
+                    <VideoChat />
+                  </div>
+                </div>
+              )}
+            </div>
+            
+            {/* Text chat section */}
+            <div className="flex flex-col h-1/2">
+              <div className="p-3 border-b border-gray-700">
+                <h3 className="font-semibold">Chat</h3>
+              </div>
+              <div className="flex-grow overflow-hidden">
+                <Chatbot darkMode={darkMode} />
+              </div>
+            </div>
+            
+            {/* Collapse chat button */}
             <button 
-              className="absolute -left-3 top-2 w-6 h-6 rounded-full bg-gray-700 flex items-center justify-center text-xs"
+              className="absolute right-[24%] top-1/2 w-6 h-10 bg-gray-700 rounded-l-md flex items-center justify-center"
               onClick={() => setChatCollapsed(true)}
               title="Collapse chat"
             >
               <span>→</span>
             </button>
-            
-            <div className="fixed top-4 right-4 z-50 w-[340px] bg-gray-950 border border-gray-700 rounded-xl shadow-lg">    
-            <div className="absolute top-4 right-4 z-50">
-               <VideoChat />
-            </div>
-              {/* Chat section */}
-              <div className="h-1/2 overflow-auto p-2 border-t border-gray-700">
-                <Chatbot darkMode={darkMode} />
-              </div>
-            </div>
           </div>
         )}
         
         {/* Collapsed chat button */}
         {chatCollapsed && (
-          <div className="w-8 flex items-center">
+          <div className="relative">
             <button 
-              className="w-8 h-20 bg-gray-700 rounded-l-md flex items-center justify-center"
+              className="absolute right-0 top-1/2 w-6 h-10 bg-gray-700 rounded-l-md flex items-center justify-center"
               onClick={() => setChatCollapsed(false)}
               title="Expand chat"
             >
@@ -589,6 +652,7 @@ const Room = () => {
               onClick={toggleTerminal}
               title="Close terminal"
             >
+              ✕
             </button>
           </div>
           <Terminal socket={socket} darkMode={darkMode} />
