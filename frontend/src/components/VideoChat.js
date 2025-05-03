@@ -136,7 +136,7 @@ const AgoraVideoChat = () => {
   return (
     <div className="p-4 bg-gray-900 text-white rounded-lg relative">
       <h2 className="text-xl font-bold mb-4">Agora Video Chat</h2>
-
+  
       <div className="mb-4">
         {!joined ? (
           <button onClick={joinChannel} className="px-4 py-2 bg-green-600 hover:bg-green-700 rounded mr-2">
@@ -147,7 +147,7 @@ const AgoraVideoChat = () => {
             Leave Video Chat
           </button>
         )}
-
+  
         {joined && (
           <>
             <button onClick={toggleVideo} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded mr-2">
@@ -162,17 +162,17 @@ const AgoraVideoChat = () => {
           </>
         )}
       </div>
-
-      <div className="w-full h-[500px] relative">
+  
+      <div className="w-full h-[500px] flex items-center justify-center relative">
         <div
           ref={localVideoRef}
           onMouseDown={onMouseDown}
-          className="absolute w-64 h-48 bg-black rounded shadow-md cursor-move top-0 left-0 z-20"
+          className="absolute w-80 h-60 bg-gray-800 rounded-lg shadow-lg cursor-move top-4 left-4 z-20 border-2 border-blue-500"
         />
-
+  
         <div
           ref={remoteVideoRef}
-          className="absolute right-0 bottom-0 w-64 h-48 bg-black rounded shadow-md"
+          className="absolute right-4 bottom-4 w-80 h-60 bg-gray-800 rounded-lg shadow-lg border-2 border-green-500"
         />
       </div>
     </div>

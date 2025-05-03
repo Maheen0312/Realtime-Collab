@@ -340,8 +340,8 @@ const Editor = ({ socketRef, roomId, codeRef }) => {
           </span>
         </div>
       </div>
-
-      <div className="flex-1 border border-gray-700 rounded-lg overflow-hidden">
+  
+      <div className="flex-1 border border-gray-700 rounded-lg overflow-hidden shadow-lg">
         <CodeMirror
           value={codeRef.current || ''}
           height="100%"
@@ -372,30 +372,30 @@ const Editor = ({ socketRef, roomId, codeRef }) => {
           }}
         />
       </div>
-
-      <div className="mt-4 flex flex-wrap gap-4">
+  
+      <div className="mt-4 flex flex-wrap gap-3">
         <button
           onClick={handleRunCode}
-          className="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded transition-colors duration-200"
+          className="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-md transition-colors duration-200 flex items-center gap-2 shadow-md"
         >
-          ▶️ Run Code
+          <span>▶️</span> Run Code
         </button>
         <button
           onClick={handleSaveCode}
-          className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded transition-colors duration-200"
+          className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-md transition-colors duration-200 flex items-center gap-2 shadow-md"
         >
-          💾 Save Code
+          <span>💾</span> Save Code
         </button>
         <button
           onClick={clearOutput}
-          className="bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded transition-colors duration-200"
+          className="bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded-md transition-colors duration-200 flex items-center gap-2 shadow-md"
         >
-          🧹 Clear Output
+          <span>🧹</span> Clear Output
         </button>
       </div>
-
+  
       <div 
-        className="mt-4 p-4 bg-black rounded-lg text-green-400 overflow-auto min-h-[150px] max-h-[200px] output-terminal"
+        className="mt-4 p-4 bg-black rounded-lg text-green-400 overflow-auto min-h-[150px] max-h-[200px] output-terminal shadow-inner border border-gray-800"
         tabIndex="0"
       >
         <div className="flex justify-between items-center mb-2">
@@ -408,14 +408,14 @@ const Editor = ({ socketRef, roomId, codeRef }) => {
         </div>
         <pre className="whitespace-pre-wrap">{output}</pre>
       </div>
-
+  
       {(language === "html" || language === "css") && (
-        <div className="mt-4 p-4 bg-white rounded-lg">
+        <div className="mt-4 p-4 bg-white rounded-lg shadow-md border border-gray-300">
           <h3 className="font-bold text-black mb-2">Preview:</h3>
           <iframe
             ref={iframeRef}
             title="Live Preview"
-            className="w-full h-64 border border-gray-300 rounded-md"
+            className="w-full h-64 border border-gray-300 rounded-md shadow-inner"
             sandbox="allow-scripts allow-same-origin"
           />
         </div>
