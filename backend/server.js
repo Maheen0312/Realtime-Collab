@@ -20,6 +20,7 @@ const server = http.createServer(app);
 const participants = {};
 const userSocketMap = {}; // socketId --> username mapping
 const rooms = new Map(); // Map<roomId, Map<socketId, userData>>
+const roomTimers = new Map(); // Track room cleanup timers
 
 // === Middlewares ===
 app.use(express.json());
@@ -62,7 +63,10 @@ const io = new Server(server, {
     origin: process.env.FRONTEND_URL,
     methods: ['GET', 'POST'],
     credentials: true
-  }
+  },
+  // Add socket.io configuration for better connection handling
+  pingTimeout: 60000,
+  pingInterval: 25000
 });
 
 // Helper function to handle user leaving
@@ -73,9 +77,24 @@ function handleUserLeaving(socket, roomId) {
   const userData = room.get(socket.id);
   room.delete(socket.id);
 
+  // Clear any existing timer for this room
+  if (roomTimers.has(roomId)) {
+    clearTimeout(roomTimers.get(roomId));
+    roomTimers.delete(roomId);
+  }
+
   if (room.size === 0) {
-    console.log(`Last user left room ${roomId}, deleting room`);
-    rooms.delete(roomId);
+    // Instead of deleting room immediately, set a grace period
+    console.log(`Last user left room ${roomId}, setting deletion timer`);
+    const timer = setTimeout(() => {
+      if (rooms.has(roomId) && rooms.get(roomId).size === 0) {
+        console.log(`Room ${roomId} deletion timer expired, removing room`);
+        rooms.delete(roomId);
+        roomTimers.delete(roomId);
+      }
+    }, 120000); // 2 minutes grace period
+    
+    roomTimers.set(roomId, timer);
   } else {
     const updatedParticipants = Array.from(room.entries()).map(([id, info]) => ({
       socketId: id,
@@ -98,6 +117,25 @@ function handleUserLeaving(socket, roomId) {
   console.log(`User left room: ${roomId}`);
 }
 
+// Unified function to get or create a room
+function getOrCreateRoom(roomId, isHost = false) {
+  if (!rooms.has(roomId)) {
+    if (!isHost) {
+      return { exists: false, room: null };
+    }
+    console.log(`Creating new room: ${roomId}`);
+    rooms.set(roomId, new Map());
+    
+    // Clear any existing timer for this room
+    if (roomTimers.has(roomId)) {
+      clearTimeout(roomTimers.get(roomId));
+      roomTimers.delete(roomId);
+    }
+  }
+  
+  return { exists: true, room: rooms.get(roomId) };
+}
+
 // === SINGLE SOCKET.IO CONNECTION HANDLER ===
 io.on('connection', (socket) => {
   console.log(`🔌 Connected: ${socket.id}`);
@@ -109,21 +147,18 @@ io.on('connection', (socket) => {
     
     if (!roomId || !user) {
       console.log("Invalid room or user data");
-      return socket.emit("error", "Invalid room or user data");
+      return socket.emit("error", { message: "Invalid room or user data" });
     }
 
-    // Create room if it doesn't exist (for hosts)
-    if (!rooms.has(roomId)) {
-      if (user.isHost) {
-        console.log(`Creating new room: ${roomId} as host`);
-        rooms.set(roomId, new Map());
-      } else {
-        console.log(`Room ${roomId} not found and user is not host`);
-        return socket.emit("room-not-found");
-      }
+    // Use unified function to get or create room
+    const { exists, room } = getOrCreateRoom(roomId, user.isHost);
+    
+    if (!exists) {
+      console.log(`Room ${roomId} not found and user is not host`);
+      return socket.emit("room-not-found");
     }
 
-    const room = rooms.get(roomId);
+    // Add user to room
     room.set(socket.id, {
       name: user.name,
       isHost: user.isHost || false,
@@ -166,24 +201,24 @@ io.on('connection', (socket) => {
   // --- Code editor events ---
   socket.on(ACTIONS.JOIN, ({ roomId, username }) => {
     userSocketMap[socket.id] = { username };
+    
+    // Use unified function to get or create room
+    const { exists, room } = getOrCreateRoom(roomId, true); // Allow creation
+    
     socket.join(roomId);
     socket.data.roomId = roomId;
 
-    // Create room if it doesn't exist
-    if (!rooms.has(roomId)) {
-      rooms.set(roomId, new Map());
+    // Add user to room if not already present
+    if (!room.has(socket.id)) {
+      room.set(socket.id, {
+        name: username,
+        isHost: room.size === 0, // First user is host
+      });
     }
-
-    // Add user to room
-    const room = rooms.get(roomId);
-    room.set(socket.id, {
-      name: username,
-      isHost: room.size === 0, // First user is host
-    });
 
     const clients = Array.from(io.sockets.adapter.rooms.get(roomId) || []).map((socketId) => ({
       socketId,
-      username: userSocketMap[socketId]?.username,
+      username: userSocketMap[socketId]?.username || room.get(socketId)?.name,
     }));
     
     clients.forEach(({ socketId }) => {
@@ -245,7 +280,7 @@ io.on('connection', (socket) => {
   });
 });
 
-// Also add this API endpoint for room validation
+// Room validation with grace period for temporarily empty rooms
 app.get("/api/check-room/:roomId", (req, res) => {
   const { roomId } = req.params;
   

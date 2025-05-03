@@ -23,7 +23,9 @@ const Home = () => {
     const newSocket = io(process.env.REACT_APP_API_URL || '', {
       reconnectionAttempts: 5,
       reconnectionDelay: 1000,
-      timeout: 10000
+      timeout: 10000,
+      forceNew: true,
+      reconnection: true
     });
     
     newSocket.on('connect', () => {
@@ -41,6 +43,22 @@ const Home = () => {
       console.error('Socket connection error:', err);
       setConnectionError(err.message);
       toast.error('Failed to connect to server');
+    });
+
+    newSocket.on('reconnect', (attemptNumber) => {
+      console.log(`Socket reconnected after ${attemptNumber} attempts`);
+      setSocketConnected(true);
+      setConnectionError(null);
+    });
+
+    newSocket.on('reconnect_error', (err) => {
+      console.error('Socket reconnection error:', err);
+      setConnectionError(`Reconnection failed: ${err.message}`);
+    });
+
+    newSocket.on('error', (err) => {
+      console.error('Socket error:', err);
+      setConnectionError(`Socket error: ${err?.message || 'Unknown error'}`);
     });
 
     setSocket(newSocket);
@@ -96,7 +114,7 @@ const Home = () => {
       const onError = (err) => {
         console.error('Socket error during join:', err);
         cleanup();
-        reject(new Error(err.message || 'Socket error'));
+        reject(new Error(err?.message || 'Socket error'));
       };
 
       const cleanup = () => {
@@ -182,31 +200,47 @@ const Home = () => {
     saveUsername(username);
 
     try {
-      console.log('Checking if room exists:', roomId);
-      const response = await fetch(`${process.env.REACT_APP_API_URL || ''}/api/check-room/${roomId}`);
-      const data = await response.json();
-
-      if (!response.ok || !data.exists) {
-        console.log('Room not found via API check');
-        toast.error('Room not found');
-        setError('Room does not exist');
-        setIsJoining(false);
-        return;
-      }
-
-      console.log('Room exists, attempting to join');
-      const joinResult = await joinRoom(roomId, false);
-
-      if (joinResult.success) {
-        console.log('Join successful, navigating to room');
+      // Try joining directly first - this handles edge cases where the API check might be out of sync
+      console.log('Attempting to join room directly:', roomId);
+      const directJoinResult = await joinRoom(roomId, false);
+      
+      if (directJoinResult.success) {
+        console.log('Direct join successful, navigating to room');
         toast.success('Joined room!');
         setPopupMessage('Joined successfully!');
         setPopupType('success');
         navigate(`/room/${roomId}?username=${encodeURIComponent(username)}`);
-      } else if (joinResult.status === 'not_found') {
-        console.log('Room not found via socket connection');
-        toast.error('Room not found or no longer active');
-        setError('Room exists but is no longer active');
+        return;
+      }
+      
+      if (directJoinResult.status === 'not_found') {
+        // Fall back to API check
+        console.log('Direct join failed, checking if room exists via API:', roomId);
+        const response = await fetch(`${process.env.REACT_APP_API_URL || ''}/api/check-room/${roomId}`);
+        const data = await response.json();
+
+        if (!response.ok || !data.exists) {
+          console.log('Room not found via API check');
+          toast.error('Room not found');
+          setError('Room does not exist');
+          return;
+        }
+        
+        // If the API says the room exists but direct join failed, try one more time
+        console.log('Room exists according to API, retrying join');
+        const retryJoinResult = await joinRoom(roomId, false);
+        
+        if (retryJoinResult.success) {
+          console.log('Retry join successful, navigating to room');
+          toast.success('Joined room!');
+          setPopupMessage('Joined successfully!');
+          setPopupType('success');
+          navigate(`/room/${roomId}?username=${encodeURIComponent(username)}`);
+        } else {
+          console.log('Retry join failed');
+          toast.error('Room not found or no longer active');
+          setError('Room exists but is no longer active');
+        }
       } else {
         toast.error('Failed to join room');
         setError('Unexpected error joining room');
@@ -214,7 +248,7 @@ const Home = () => {
     } catch (err) {
       console.error('Error joining room:', err);
       toast.error('Error joining room');
-      setError(err.message);
+      setError(err.message || 'Unknown error occurred');
     } finally {
       setIsJoining(false);
     }
