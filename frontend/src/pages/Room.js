@@ -9,6 +9,7 @@ import UserList from '../components/UserList';
 import { useSocket } from '../socketContext';
 import { ACTIONS } from '../action';
 import toast from 'react-hot-toast';
+import { v4 as uuidV4 } from 'uuid';
 import { initSocket } from '../socket';
 const API_BASE_URL = process.env.REACT_APP_API_URL || "http://localhost:5000";
 
@@ -18,7 +19,7 @@ const Room = () => {
   const navigate = useNavigate();
   const { roomId } = useParams();
   const location = useLocation();
-  const [userId] = useState(localStorage.getItem("userId") || uuidV4());
+  const [userId] = useState(uuidV4());
   // Get query parameters from URL
   const queryParams = new URLSearchParams(location.search);
   const usernameFromUrl = queryParams.get('username');
