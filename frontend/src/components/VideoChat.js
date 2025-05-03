@@ -135,8 +135,6 @@ const AgoraVideoChat = () => {
 
   return (
     <div className="p-4 bg-gray-900 text-white rounded-lg relative">
-      <h2 className="text-xl font-bold mb-4">Agora Video Chat</h2>
-  
       <div className="mb-4">
         {!joined ? (
           <button onClick={joinChannel} className="px-4 py-2 bg-green-600 hover:bg-green-700 rounded mr-2">
@@ -163,7 +161,7 @@ const AgoraVideoChat = () => {
         )}
       </div>
   
-      <div className="w-full h-[500px] flex items-center justify-center relative">
+      <div className="w-full h-[200px] flex items-center justify-center relative">
         <div
           ref={localVideoRef}
           onMouseDown={onMouseDown}

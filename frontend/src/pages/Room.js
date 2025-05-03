@@ -556,7 +556,7 @@ const Room = () => {
         {!chatCollapsed && (
           <div className={`flex flex-col w-1/4 ${theme.sidebar} border-l ${theme.border} transition-all duration-300`}>
             {/* Video chat section */}
-            <div className="flex flex-col h-1/2 border-b border-gray-700">
+            <div className="flex flex-col h-500px border-b border-gray-700">
               <div className={`p-3 border-b ${theme.border} flex justify-between items-center`}>
                 <h3 className="font-semibold">Agora Video Chat</h3>
                 <button 
@@ -569,7 +569,7 @@ const Room = () => {
               
               {showVideoChat && (
                 <div className="flex-grow p-2 overflow-hidden">
-                  <div className="h-full flex flex-col">
+                  <div className="h-200 flex flex-col">
                     <VideoChat />
                   </div>
                 </div>
