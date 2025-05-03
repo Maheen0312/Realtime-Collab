@@ -31,7 +31,12 @@ const Room = () => {
   const socketRef = useRef();
 
   const stateData = useMemo(() => location.state || {}, [location.state]);
+  const [showVideoChat, setShowVideoChat] = useState(false);
 
+  const toggleVideoChat = () => {
+    setShowVideoChat(prev => !prev);
+  };
+  
   const [activeMenu, setActiveMenu] = useState(null);
   const [showTerminal, setShowTerminal] = useState(false);
   const [showSharePopup, setShowSharePopup] = useState(false);
@@ -546,8 +551,9 @@ const Room = () => {
               <span>→</span>
             </button>
             
-            <div className="flex-1 flex flex-col overflow-hidden">
-            <VideoChat roomId={roomId} userId={userId} />              
+            <div className="fixed top-4 right-4 z-50 w-[340px] bg-gray-950 border border-gray-700 rounded-xl shadow-lg">
+            <button onClick={toggleVideoChat} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md shadow-md"> {showVideoChat ? 'Hide Video Chat' : 'Start Video Chat'}</button>      
+            <VideoChat />              
               {/* Chat section */}
               <div className="h-1/2 overflow-auto p-2 border-t border-gray-700">
                 <Chatbot darkMode={darkMode} />

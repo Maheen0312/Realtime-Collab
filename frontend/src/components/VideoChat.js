@@ -1,10 +1,9 @@
-// src/components/AgoraVideoChat.jsx
 import React, { useEffect, useRef, useState } from 'react';
 import AgoraRTC from 'agora-rtc-sdk-ng';
 
 const APP_ID = '712f72b0c5ed413299df9bab345526f3';
-const TOKEN = '007eJxTYIi/ofH43AvByd8+LYhgZ3ZTZ4vi2Xaaf90+vdlO92NVvy1XYDA3NEozN0oySDZNTTExNDaytExJs0xKTDI2MTU1MkszvrBHNKMhkJFB+9RXVkYGCATxORhKUotLivLzcxkYAMryIVw='; // or null if app certificate is disabled
-const CHANNEL = 'testroom'; // or dynamic per room
+const TOKEN = '007eJxTYIi/ofH43AvByd8+LYhgZ3ZTZ4vi2Xaaf90+vdlO92NVvy1XYDA3NEozN0oySDZNTTExNDaytExJs0xKTDI2MTU1MkszvrBHNKMhkJFB+9RXVkYGCATxORhKUotLivLzcxkYAMryIVw=';
+const CHANNEL = 'testroom'; // You can make this dynamic if needed
 
 const AgoraVideoChat = () => {
   const [joined, setJoined] = useState(false);
@@ -29,8 +28,12 @@ const AgoraVideoChat = () => {
     const [audioTrack, videoTrack] = await AgoraRTC.createMicrophoneAndCameraTracks();
     localTrackRef.current = { audioTrack, videoTrack };
 
-    // Play local stream
-    videoTrack.play(localVideoRef.current);
+    // Wait for DOM to be ready
+    setTimeout(() => {
+      if (localVideoRef.current) {
+        videoTrack.play(localVideoRef.current);
+      }
+    }, 100);
 
     await client.publish([audioTrack, videoTrack]);
 
@@ -38,11 +41,26 @@ const AgoraVideoChat = () => {
 
     client.on('user-published', async (user, mediaType) => {
       await client.subscribe(user, mediaType);
+
       if (mediaType === 'video') {
-        user.videoTrack.play(remoteVideoRef.current);
+        setTimeout(() => {
+          if (remoteVideoRef.current) {
+            user.videoTrack.play(remoteVideoRef.current);
+          }
+        }, 100);
       }
+
       if (mediaType === 'audio') {
         user.audioTrack.play();
+      }
+    });
+
+    client.on('user-unpublished', (user) => {
+      if (user.videoTrack) {
+        user.videoTrack.stop();
+      }
+      if (user.audioTrack) {
+        user.audioTrack.stop();
       }
     });
   };
@@ -51,8 +69,15 @@ const AgoraVideoChat = () => {
     const client = clientRef.current;
     const { audioTrack, videoTrack } = localTrackRef.current;
 
-    if (audioTrack) audioTrack.stop();
-    if (videoTrack) videoTrack.stop();
+    if (audioTrack) {
+      audioTrack.stop();
+      audioTrack.close();
+    }
+
+    if (videoTrack) {
+      videoTrack.stop();
+      videoTrack.close();
+    }
 
     await client.leave();
     setJoined(false);
@@ -64,11 +89,17 @@ const AgoraVideoChat = () => {
       <div className="flex space-x-4 mb-4">
         <div>
           <h3 className="mb-2">Local</h3>
-          <div ref={localVideoRef} className="w-64 h-48 bg-black" />
+          <div
+            ref={localVideoRef}
+            className="w-64 h-48 bg-black overflow-hidden rounded"
+          />
         </div>
         <div>
           <h3 className="mb-2">Remote</h3>
-          <div ref={remoteVideoRef} className="w-64 h-48 bg-black" />
+          <div
+            ref={remoteVideoRef}
+            className="w-64 h-48 bg-black overflow-hidden rounded"
+          />
         </div>
       </div>
       <div>
