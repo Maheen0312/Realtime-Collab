@@ -18,7 +18,7 @@ const Room = () => {
   const navigate = useNavigate();
   const { roomId } = useParams();
   const location = useLocation();
-  const [userId] = useState(uuidV4());
+  const [userId] = useState(localStorage.getItem("userId") || uuidV4());
   // Get query parameters from URL
   const queryParams = new URLSearchParams(location.search);
   const usernameFromUrl = queryParams.get('username');
