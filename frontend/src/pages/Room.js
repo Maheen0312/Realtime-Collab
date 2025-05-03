@@ -18,7 +18,7 @@ const Room = () => {
   const navigate = useNavigate();
   const { roomId } = useParams();
   const location = useLocation();
-  
+  const [userId] = useState(uuidV4());
   // Get query parameters from URL
   const queryParams = new URLSearchParams(location.search);
   const usernameFromUrl = queryParams.get('username');
@@ -167,7 +167,7 @@ const Room = () => {
         socketRef.current.off('error');
       }
     };
-  }, [roomId, userData.name, language, navigate]);
+  }, [roomId,userId, userData.name, language, navigate]);
 
   // Initial authentication and room validation
   useEffect(() => {
@@ -546,17 +546,7 @@ const Room = () => {
             </button>
             
             <div className="flex-1 flex flex-col overflow-hidden">
-              {/* Video chat section */}
-              <div className="h-1/2 overflow-auto p-2">
-                <VideoChat 
-                  socket={socket} 
-                  roomId={roomId}
-                  userId={socket?.id}
-                  participants={getParticipantData()}
-                  darkMode={darkMode}
-                />
-              </div>
-              
+            <VideoChat roomId={roomId} userId={userId} />              
               {/* Chat section */}
               <div className="h-1/2 overflow-auto p-2 border-t border-gray-700">
                 <Chatbot darkMode={darkMode} />
