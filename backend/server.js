@@ -149,6 +149,10 @@ io.on('connection', (socket) => {
       console.log("Invalid room or user data");
       return socket.emit("error", { message: "Invalid room or user data" });
     }
+    socket.on('join-room', (roomId, peerId) => {
+      socket.join(roomId);
+      socket.to(roomId).broadcast.emit('user-connected', peerId);
+    });
 
     // Use unified function to get or create room
     const { exists, room } = getOrCreateRoom(roomId, user.isHost);
