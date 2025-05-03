@@ -578,9 +578,6 @@ const Room = () => {
             
             {/* Text chat section */}
             <div className="flex flex-col h-1/2">
-              <div className="p-3 border-b border-gray-700">
-                <h3 className="font-semibold">Chat</h3>
-              </div>
               <div className="flex-grow overflow-hidden">
                 <Chatbot darkMode={darkMode} />
               </div>
