@@ -111,25 +111,6 @@ const AgoraVideoChat = () => {
 
   return (
     <div className="w-full h-screen bg-gray-900 text-white flex flex-col items-center justify-center">
-      {/* Video Area */}
-      <div className="flex justify-center items-center gap-4 w-full px-4 flex-wrap mt-6">
-        {/* Local Video */}
-        <div className="relative w-[380px] h-[280px] bg-black rounded-lg shadow-lg overflow-hidden border border-blue-500">
-          <div ref={localVideoRef} className="w-full h-full object-cover" />
-          <span className="absolute bottom-2 left-2 text-sm bg-black bg-opacity-50 px-2 py-1 rounded text-white">
-            You
-          </span>
-        </div>
-
-        {/* Remote Video */}
-        <div className="relative w-[380px] h-[280px] bg-black rounded-lg shadow-lg overflow-hidden border border-green-500">
-          <div ref={remoteVideoRef} className="w-full h-full object-cover" />
-          <span className="absolute bottom-2 left-2 text-sm bg-black bg-opacity-50 px-2 py-1 rounded text-white">
-            Remote
-          </span>
-        </div>
-      </div>
-
       {/* Controls */}
       <div className="mt-6 bg-gray-800 rounded-full py-2 px-6 flex gap-4 justify-center items-center shadow-lg">
         {!joined ? (
@@ -147,6 +128,26 @@ const AgoraVideoChat = () => {
             >
               Leave
             </button>
+      {/* Video Area */}
+      <div className="flex justify-center items-center gap-4 w-full px-4 flex-wrap mt-6">
+        {/* Local Video */}
+        <div className="relative w-[200px] h-[200px] bg-black rounded-lg shadow-lg overflow-hidden border border-blue-500">
+          <div ref={localVideoRef} className="w-full h-full object-cover" />
+          <span className="absolute bottom-2 left-2 text-sm bg-black bg-opacity-50 px-2 py-1 rounded text-white">
+            You
+          </span>
+        </div>
+
+        {/* Remote Video */}
+        <div className="relative w-[200px] h-[200px] bg-black rounded-lg shadow-lg overflow-hidden border border-green-500">
+          <div ref={remoteVideoRef} className="w-full h-full object-cover" />
+          <span className="absolute bottom-2 left-2 text-sm bg-black bg-opacity-50 px-2 py-1 rounded text-white">
+            Remote
+          </span>
+        </div>
+      </div>
+
+      
             <button
               onClick={toggleVideo}
               className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-full transition"
