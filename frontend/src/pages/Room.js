@@ -566,7 +566,6 @@ const Room = () => {
                   {showVideoChat ? 'Hide Video' : 'Show Video'}
                 </button>
               </div>
-              
               {showVideoChat && (
                 <div className="flex-grow p-2 overflow-hidden">
                   <div className="h-200 flex flex-col">
