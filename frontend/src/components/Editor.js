@@ -735,13 +735,7 @@ const Editor = ({ socketRef, roomId, codeRef }) => {
   const clearOutput = () => {
     setOutput("");
   };
-  
-  // Function to show line numbers with comment indicators
-  const renderLineNumbers = () => {
-    // Placeholder - real implementation would need to 
-    // extend CodeMirror to customize line numbers rendering
-    console.log("Rendering line numbers with comment indicators");
-  };
+
   
   // Helper to format timestamps
   const formatTime = (timestamp) => {
@@ -756,32 +750,6 @@ const Editor = ({ socketRef, roomId, codeRef }) => {
           <LanguageSelector onLanguageChange={handleLanguageChange} />
           <div className="text-xs text-gray-400">{saveStatus}</div>
         </div>
-        <div className="connection-status flex items-center">
-          <span className={`inline-block w-3 h-3 rounded-full mr-2 ${isConnected ? 'bg-green-500' : 'bg-red-500'}`}></span>
-          <span className="text-sm text-gray-300">
-            {isConnected ? `Connected (${userCount} user${userCount !== 1 ? 's' : ''})` : 'Disconnected'}
-          </span>
-        </div>
-      </div>
-      
-      {/* Active users */}
-      <div className="flex mb-2 gap-2 overflow-x-auto">
-        {participants.map((participant) => (
-          <div 
-            key={participant.socketId} 
-            className="px-2 py-1 rounded-full text-xs flex items-center gap-1"
-            style={{ backgroundColor: participant.userColor + '30', color: participant.userColor }}
-          >
-            <span 
-              className="w-2 h-2 rounded-full"
-              style={{ backgroundColor: participant.userColor }}
-            ></span>
-            {participant.username}
-            {userTyping[participant.socketId] && (
-              <span className="ml-1 text-gray-300 text-xs">typing...</span>
-            )}
-          </div>
-        ))}
       </div>
 
       <div className="flex-1 border border-gray-700 rounded-lg overflow-hidden shadow-lg relative">
@@ -799,8 +767,8 @@ const Editor = ({ socketRef, roomId, codeRef }) => {
           onFocus={handleEditorFocus}
           onBlur={handleEditorBlur}
           // This would need to be implemented with CodeMirror's view plugins
-          // onCursorActivity={cm => handleCursorActivity(cm.editor)}
-          // onSelectionChange={cm => handleSelectionChange(cm.editor)}
+           onCursorActivity={cm => handleCursorActivity(cm.editor)}
+           onSelectionChange={cm => handleSelectionChange(cm.editor)}
           basicSetup={{
             lineNumbers: true,
             highlightActiveLineGutter: true,
@@ -955,28 +923,6 @@ const Editor = ({ socketRef, roomId, codeRef }) => {
           />
         </div>
       )}
-      
-      {/* Participants panel */}
-      <div className="mt-4 p-4 bg-gray-800 rounded-lg shadow-md border border-gray-700">
-        <h3 className="font-bold text-white mb-2">Participants ({participants.length})</h3>
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
-          {participants.map((participant) => (
-            <div 
-              key={participant.socketId}
-              className="flex items-center gap-2 p-2 rounded-md bg-gray-900"
-            >
-              <div 
-                className="w-4 h-4 rounded-full" 
-                style={{ backgroundColor: participant.userColor }}
-              ></div>
-              <span className="text-sm truncate">{participant.username}</span>
-              {userTyping[participant.socketId] && (
-                <span className="animate-pulse text-xs text-gray-400">typing...</span>
-              )}
-            </div>
-          ))}
-        </div>
-      </div>
       
       {/* Comments section */}
       <div className="mt-4 p-4 bg-gray-800 rounded-lg shadow-md border border-gray-700">
