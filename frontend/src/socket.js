@@ -10,11 +10,12 @@ export const initSocket = async (auth = {}) => {
     forceNew: true,
     reconnectionAttempts: Infinity,
     timeout: 10000,
-    transports: ['websocket'], // Removed 'polling' for stricter WebSocket use
+    transports: ['websocket'], // Enforcing WebSocket over polling for better performance
     pingInterval: 25000,
     auth, // Optional auth (e.g., username or token)
   };
 
+  // Establishing socket connection to the server
   socket = io('https://realtime-collab-backend-mysh.onrender.com', options);
 
   socket.on('connect', () => {
@@ -27,20 +28,23 @@ export const initSocket = async (auth = {}) => {
 
   socket.on('connect_error', (err) => {
     console.error('⚠️ Connection error:', err.message);
+    // You might want to show a user-friendly error or perform specific actions
   });
 
   socket.on('reconnect_error', (err) => {
     console.error('⚠️ Reconnect error:', err.message);
+    // Potentially add a retry mechanism or user notification
   });
 
   socket.on('reconnect_failed', () => {
     console.error('⚠️ Reconnect failed');
+    // You can show a message here prompting the user to retry or check the connection
   });
 
   return socket;
 };
 
-// Optional: to access socket instance later (e.g., to emit events)
+// Optional: to access the socket instance later (e.g., to emit events)
 export const getSocket = () => socket;
 
 export default initSocket;
