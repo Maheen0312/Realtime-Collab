@@ -12,7 +12,7 @@ const {
   setupSocketHandlers,
   setupRoomAPI,
   startRoomCleanupJob
-} = require('./src/socketHandlers');
+} = require('./socket.handlers');
 
 // Route imports
 const authRoutes = require('./src/routes/auth');
