@@ -473,7 +473,7 @@ const Room = () => {
 
         <div className="flex items-center space-x-3">
         <div className="bg-gray-900 text-white p-2 rounded-lg shadow-md text-sm">
-              Participants: {participants.length}
+              Participants: {clients.length}
         </div>
 
           <button 
