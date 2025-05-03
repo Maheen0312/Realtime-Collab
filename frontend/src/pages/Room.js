@@ -551,9 +551,10 @@ const Room = () => {
               <span>→</span>
             </button>
             
-            <div className="fixed top-4 right-4 z-50 w-[340px] bg-gray-950 border border-gray-700 rounded-xl shadow-lg">
-            <button onClick={toggleVideoChat} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md shadow-md"> {showVideoChat ? 'Hide Video Chat' : 'Start Video Chat'}</button>      
-            <VideoChat />              
+            <div className="fixed top-4 right-4 z-50 w-[340px] bg-gray-950 border border-gray-700 rounded-xl shadow-lg">    
+            <div className="absolute top-4 right-4 z-50">
+               <VideoChat />
+            </div>
               {/* Chat section */}
               <div className="h-1/2 overflow-auto p-2 border-t border-gray-700">
                 <Chatbot darkMode={darkMode} />
