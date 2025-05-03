@@ -1,11 +1,6 @@
-// src/firebase.js
-
-// Import only what you need (modular SDK)
+// firebase.js - This file should properly initialize Firebase and Firestore
 import { initializeApp } from 'firebase/app';
-import { getFirestore } from 'firebase/firestore';
-import { getAuth } from 'firebase/auth';
-import { getDatabase } from 'firebase/database'; // For Realtime DB (optional)
-import { getStorage } from 'firebase/storage';   // For file uploads (optional)
+import { getFirestore, collection, doc, setDoc, updateDoc, onSnapshot, getDoc, addDoc } from 'firebase/firestore';
 
 // Firebase configuration
 const firebaseConfig = {
@@ -21,11 +16,7 @@ const firebaseConfig = {
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
 
-// Initialize services
+// Initialize Firestore
 const firestore = getFirestore(app);
-const auth = getAuth(app);
-const realtimeDB = getDatabase(app);
-const storage = getStorage(app);
 
-// Export services
-export { app, firestore, auth, realtimeDB, storage };
+export { firestore, collection, doc, setDoc, updateDoc, onSnapshot, getDoc, addDoc };

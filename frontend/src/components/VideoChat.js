@@ -1,5 +1,5 @@
 import React, { useRef, useState, useEffect } from 'react';
-import { firestore } from '../firebase';
+import { firestore, collection, doc, setDoc, updateDoc, onSnapshot, getDoc, addDoc } from '../firebase';
 
 const VideoChat = () => {
   const [callId, setCallId] = useState('');
@@ -46,15 +46,17 @@ const VideoChat = () => {
   };
 
   const createCall = async () => {
-    const callDoc = firestore.collection('calls').doc();
-    const offerCandidates = callDoc.collection('offerCandidates');
-    const answerCandidates = callDoc.collection('answerCandidates');
+    // Create references with the updated Firestore v9 syntax
+    const callsCollection = collection(firestore, 'calls');
+    const callDoc = doc(callsCollection);
+    const offerCandidatesCollection = collection(callDoc, 'offerCandidates');
+    const answerCandidatesCollection = collection(callDoc, 'answerCandidates');
 
     setCallId(callDoc.id);
 
     pc.current.onicecandidate = (event) => {
       if (event.candidate) {
-        offerCandidates.add(event.candidate.toJSON());
+        addDoc(offerCandidatesCollection, event.candidate.toJSON());
       }
     };
 
@@ -66,9 +68,9 @@ const VideoChat = () => {
       type: offerDescription.type,
     };
 
-    await callDoc.set({ offer });
+    await setDoc(callDoc, { offer });
 
-    callDoc.onSnapshot((snapshot) => {
+    onSnapshot(callDoc, (snapshot) => {
       const data = snapshot.data();
       if (!pc.current.currentRemoteDescription && data?.answer) {
         const answerDescription = new RTCSessionDescription(data.answer);
@@ -76,7 +78,7 @@ const VideoChat = () => {
       }
     });
 
-    answerCandidates.onSnapshot((snapshot) => {
+    onSnapshot(answerCandidatesCollection, (snapshot) => {
       snapshot.docChanges().forEach((change) => {
         if (change.type === 'added') {
           const candidate = new RTCIceCandidate(change.doc.data());
@@ -89,17 +91,19 @@ const VideoChat = () => {
   };
 
   const joinCall = async () => {
-    const callDoc = firestore.collection('calls').doc(callId);
-    const offerCandidates = callDoc.collection('offerCandidates');
-    const answerCandidates = callDoc.collection('answerCandidates');
+    // Create references with the updated Firestore v9 syntax
+    const callDoc = doc(firestore, 'calls', callId);
+    const offerCandidatesCollection = collection(callDoc, 'offerCandidates');
+    const answerCandidatesCollection = collection(callDoc, 'answerCandidates');
 
     pc.current.onicecandidate = (event) => {
       if (event.candidate) {
-        answerCandidates.add(event.candidate.toJSON());
+        addDoc(answerCandidatesCollection, event.candidate.toJSON());
       }
     };
 
-    const callData = (await callDoc.get()).data();
+    const docSnap = await getDoc(callDoc);
+    const callData = docSnap.data();
 
     const offerDescription = callData.offer;
     await pc.current.setRemoteDescription(new RTCSessionDescription(offerDescription));
@@ -112,9 +116,9 @@ const VideoChat = () => {
       sdp: answerDescription.sdp,
     };
 
-    await callDoc.update({ answer });
+    await updateDoc(callDoc, { answer });
 
-    offerCandidates.onSnapshot((snapshot) => {
+    onSnapshot(offerCandidatesCollection, (snapshot) => {
       snapshot.docChanges().forEach((change) => {
         if (change.type === 'added') {
           const data = change.doc.data();
