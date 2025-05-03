@@ -540,36 +540,7 @@ const Room = () => {
         )}
 
         {/* Center - Editor */}
-        <div className={`flex flex-col ${sidebarCollapsed ? 'w-3/4' : 'w-7/12'} ${chatCollapsed ? 'w-11/12' : ''} transition-all duration-300`}>
-          {/* Editor header with language selector */}
-          <div className={`flex items-center justify-between p-2 ${theme.navbar} border-b ${theme.border}`}>
-            <div className="flex items-center">
-              <label htmlFor="language-select" className="mr-2 text-sm">Select Language:</label>
-              <select 
-                id="language-select"
-                className={`px-2 py-1 rounded ${darkMode ? 'bg-gray-700 border-gray-600' : 'bg-white border-gray-300'} border`}
-                value={language} 
-                onChange={handleLanguageChange}
-              >
-                <option value="javascript">JavaScript</option>
-                <option value="python">Python</option>
-                <option value="cpp">C++</option>
-                <option value="java">Java</option>
-                <option value="html">HTML</option>
-                <option value="css">CSS</option>
-              </select>
-            </div>
-            
-            <div className="flex space-x-2">
-              <button className={`px-3 py-1 ${theme.buttonSuccess} rounded text-sm flex items-center gap-1`}>
-                <span className="text-lg">▶</span> Run Code
-              </button>
-              <button className={`px-3 py-1 ${theme.buttonPrimary} rounded text-sm flex items-center gap-1`}>
-                <span>💾</span> Save Code
-              </button>
-            </div>
-          </div>
-          
+        <div className={`flex flex-col ${sidebarCollapsed ? 'w-3/4' : 'w-7/12'} ${chatCollapsed ? 'w-11/12' : ''} transition-all duration-300`}>          
           {/* Editor component */}
           <div className="flex-grow overflow-hidden">
             <Editor 
