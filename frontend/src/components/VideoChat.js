@@ -1,236 +1,120 @@
-import React, { useRef, useState, useEffect } from 'react';
-import {firestore,auth,signInAnonymously,collection,doc,setDoc,updateDoc,onSnapshot,getDoc,addDoc } from '../firebase'; // Adjust the import path as necessary
+// VideoChat.js
 
-const VideoChat = () => {
-  const [callId, setCallId] = useState('');
-  const [isCallStarted, setIsCallStarted] = useState(false);
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [error, setError] = useState(null);
-  const localVideoRef = useRef(null);
-  const remoteVideoRef = useRef(null);
-  const pc = useRef(null);
-  const localStream = useRef(null);
-  const remoteStream = useRef(null);
+import React, { useEffect, useRef, useState } from 'react';
+import Peer from 'peerjs';
+import { v4 as uuidV4 } from 'uuid';
+import { FaMicrophone, FaMicrophoneSlash, FaVideo, FaVideoSlash } from 'react-icons/fa';
+import socket from '../socket'; // Adjust path if needed
 
-  const servers = {
-    iceServers: [
-      {
-        urls: ['stun:stun1.l.google.com:19302', 'stun:stun2.l.google.com:19302'],
-      },
-    ],
-    iceCandidatePoolSize: 10,
-  };
+const VideoChat = ({ roomId, userId }) => {
+  const myVideoRef = useRef(null);
+  const videoContainerRef = useRef(null);
+  const [peer, setPeer] = useState(null);
+  const [stream, setStream] = useState(null);
+  const [peers, setPeers] = useState({});
+  const [micEnabled, setMicEnabled] = useState(true);
+  const [cameraEnabled, setCameraEnabled] = useState(true);
 
-  // Authenticate user when component mounts
   useEffect(() => {
-    const authenticateUser = async () => {
-      try {
-        await signInAnonymously(auth);
-        
-        // Listen for auth state changes
-        const unsubscribe = auth.onAuthStateChanged(user => {
-          if (user) {
-            console.log('User authenticated with ID:', user.uid);
-            setIsAuthenticated(true);
-            setError(null);
-          } else {
-            console.log('User signed out');
-            setIsAuthenticated(false);
-          }
-        });
-        
-        return () => unsubscribe(); // Clean up the listener
-      } catch (error) {
-        console.error('Authentication error:', error);
-        setError('Failed to authenticate: ' + error.message);
+    const newPeer = new Peer(userId || uuidV4());
+    setPeer(newPeer);
+
+    navigator.mediaDevices.getUserMedia({ video: true, audio: true }).then(currentStream => {
+      setStream(currentStream);
+
+      if (myVideoRef.current) {
+        myVideoRef.current.srcObject = currentStream;
       }
+
+      socket.emit('join-room', roomId, newPeer.id);
+
+      newPeer.on('call', call => {
+        call.answer(currentStream);
+        const video = document.createElement('video');
+        video.playsInline = true;
+        call.on('stream', remoteStream => {
+          addVideoStream(video, remoteStream, call.peer);
+        });
+      });
+
+      socket.on('user-connected', userId => {
+        connectToNewUser(userId, currentStream, newPeer);
+      });
+
+      socket.on('user-disconnected', userId => {
+        if (peers[userId]) {
+          peers[userId].close();
+          removeVideoStream(userId);
+        }
+      });
+    });
+
+    return () => {
+      socket.disconnect();
+      newPeer.destroy();
+      stream?.getTracks().forEach(track => track.stop());
     };
-    
-    authenticateUser();
   }, []);
 
-  useEffect(() => {
-    if (isAuthenticated) {
-      initializePeerConnection();
-    }
-  }, [isAuthenticated]);
+  const connectToNewUser = (userId, stream, peer) => {
+    const call = peer.call(userId, stream);
+    const video = document.createElement('video');
+    video.playsInline = true;
+    call.on('stream', remoteStream => {
+      addVideoStream(video, remoteStream, userId);
+    });
+    call.on('close', () => {
+      removeVideoStream(userId);
+    });
 
-  const initializePeerConnection = () => {
-    pc.current = new RTCPeerConnection(servers);
-    remoteStream.current = new MediaStream();
+    setPeers(prev => ({ ...prev, [userId]: call }));
+  };
 
-    pc.current.ontrack = (event) => {
-      event.streams[0].getTracks().forEach((track) => {
-        remoteStream.current.addTrack(track);
-      });
-    };
-
-    if (remoteVideoRef.current) {
-      remoteVideoRef.current.srcObject = remoteStream.current;
+  const addVideoStream = (video, stream, id) => {
+    video.srcObject = stream;
+    video.id = id;
+    video.className = 'w-40 h-32 object-cover rounded-md border border-gray-700';
+    video.autoplay = true;
+    video.muted = false;
+    if (videoContainerRef.current && !document.getElementById(id)) {
+      videoContainerRef.current.appendChild(video);
     }
   };
 
-  const startWebcam = async () => {
-    try {
-      localStream.current = await navigator.mediaDevices.getUserMedia({
-        video: true,
-        audio: true,
-      });
-
-      localStream.current.getTracks().forEach((track) => {
-        pc.current.addTrack(track, localStream.current);
-      });
-
-      localVideoRef.current.srcObject = localStream.current;
-      setError(null);
-    } catch (err) {
-      console.error('Error accessing media devices:', err);
-      setError('Failed to access camera/microphone: ' + err.message);
-    }
+  const removeVideoStream = (userId) => {
+    const video = document.getElementById(userId);
+    if (video) video.remove();
   };
 
-  const createCall = async () => {
-    if (!isAuthenticated) {
-      setError('Please wait for authentication to complete');
-      return;
-    }
-
-    try {
-      // Create references with the updated Firestore v9 syntax
-      const callsCollection = collection(firestore, 'calls');
-      const callDoc = doc(callsCollection);
-      const offerCandidatesCollection = collection(callDoc, 'offerCandidates');
-      const answerCandidatesCollection = collection(callDoc, 'answerCandidates');
-
-      setCallId(callDoc.id);
-
-      pc.current.onicecandidate = (event) => {
-        if (event.candidate) {
-          addDoc(offerCandidatesCollection, event.candidate.toJSON());
-        }
-      };
-
-      const offerDescription = await pc.current.createOffer();
-      await pc.current.setLocalDescription(offerDescription);
-
-      const offer = {
-        sdp: offerDescription.sdp,
-        type: offerDescription.type,
-        createdBy: auth.currentUser.uid,
-        createdAt: new Date(),
-      };
-
-      await setDoc(callDoc, { offer });
-
-      onSnapshot(callDoc, (snapshot) => {
-        const data = snapshot.data();
-        if (!pc.current.currentRemoteDescription && data?.answer) {
-          const answerDescription = new RTCSessionDescription(data.answer);
-          pc.current.setRemoteDescription(answerDescription);
-        }
-      });
-
-      onSnapshot(answerCandidatesCollection, (snapshot) => {
-        snapshot.docChanges().forEach((change) => {
-          if (change.type === 'added') {
-            const candidate = new RTCIceCandidate(change.doc.data());
-            pc.current.addIceCandidate(candidate);
-          }
-        });
-      });
-
-      setIsCallStarted(true);
-      setError(null);
-    } catch (err) {
-      console.error('Error creating call:', err);
-      setError('Failed to create call: ' + err.message);
-    }
+  const toggleMic = () => {
+    stream.getAudioTracks().forEach(track => (track.enabled = !track.enabled));
+    setMicEnabled(!micEnabled);
   };
 
-  const joinCall = async () => {
-    if (!isAuthenticated) {
-      setError('Please wait for authentication to complete');
-      return;
-    }
-    
-    if (!callId) {
-      setError('Please enter a Call ID');
-      return;
-    }
-
-    try {
-      // Create references with the updated Firestore v9 syntax
-      const callDoc = doc(firestore, 'calls', callId);
-      const offerCandidatesCollection = collection(callDoc, 'offerCandidates');
-      const answerCandidatesCollection = collection(callDoc, 'answerCandidates');
-
-      pc.current.onicecandidate = (event) => {
-        if (event.candidate) {
-          addDoc(answerCandidatesCollection, event.candidate.toJSON());
-        }
-      };
-
-      const docSnap = await getDoc(callDoc);
-      if (!docSnap.exists()) {
-        setError('Call ID does not exist');
-        return;
-      }
-      
-      const callData = docSnap.data();
-
-      const offerDescription = callData.offer;
-      await pc.current.setRemoteDescription(new RTCSessionDescription(offerDescription));
-
-      const answerDescription = await pc.current.createAnswer();
-      await pc.current.setLocalDescription(answerDescription);
-
-      const answer = {
-        type: answerDescription.type,
-        sdp: answerDescription.sdp,
-        answeredBy: auth.currentUser.uid,
-        answeredAt: new Date(),
-      };
-
-      await updateDoc(callDoc, { answer });
-
-      onSnapshot(offerCandidatesCollection, (snapshot) => {
-        snapshot.docChanges().forEach((change) => {
-          if (change.type === 'added') {
-            const data = change.doc.data();
-            pc.current.addIceCandidate(new RTCIceCandidate(data));
-          }
-        });
-      });
-
-      setIsCallStarted(true);
-      setError(null);
-    } catch (err) {
-      console.error('Error joining call:', err);
-      setError('Failed to join call: ' + err.message);
-    }
+  const toggleCamera = () => {
+    stream.getVideoTracks().forEach(track => (track.enabled = !track.enabled));
+    setCameraEnabled(!cameraEnabled);
   };
 
   return (
-    <div>
-      <h2>Video Chat</h2>
-      {error && <div style={{ color: 'red' }}>{error}</div>}
-      <div>
-        <video ref={localVideoRef} autoPlay playsInline muted style={{ width: '300px' }} />
-        <video ref={remoteVideoRef} autoPlay playsInline style={{ width: '300px' }} />
-      </div>
-      <div>
-        <button onClick={startWebcam} disabled={!isAuthenticated}>Start Webcam</button>
-        <button onClick={createCall} disabled={!isAuthenticated}>Create Call</button>
-        <input
-          value={callId}
-          onChange={(e) => setCallId(e.target.value)}
-          placeholder="Call ID"
-          disabled={!isAuthenticated}
+    <div className="absolute top-4 right-4 bg-gray-900 bg-opacity-80 p-3 rounded-xl shadow-lg z-50 w-72">
+      <div ref={videoContainerRef} className="grid grid-cols-2 gap-2 mb-2">
+        <video
+          ref={myVideoRef}
+          muted
+          autoPlay
+          playsInline
+          className="w-40 h-32 object-cover rounded-md border border-gray-700"
         />
-        <button onClick={joinCall} disabled={!isAuthenticated}>Join Call</button>
       </div>
-      {isCallStarted && <p>Call in progress...</p>}
-      {!isAuthenticated && <p>Authenticating...</p>}
+      <div className="flex justify-around mt-2">
+        <button onClick={toggleMic} className="text-white hover:text-red-500">
+          {micEnabled ? <FaMicrophone size={20} /> : <FaMicrophoneSlash size={20} />}
+        </button>
+        <button onClick={toggleCamera} className="text-white hover:text-red-500">
+          {cameraEnabled ? <FaVideo size={20} /> : <FaVideoSlash size={20} />}
+        </button>
+      </div>
     </div>
   );
 };
