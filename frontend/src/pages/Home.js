@@ -13,27 +13,56 @@ const Home = () => {
   const [isJoining, setIsJoining] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [socket, setSocket] = useState(null);
+  const [socketConnected, setSocketConnected] = useState(false);
   const navigate = useNavigate();
   const [popupMessage, setPopupMessage] = useState('');
   const [popupType, setPopupType] = useState(''); // 'success' or 'error'
 
+  // Initialize socket connection
+  useEffect(() => {
+    const newSocket = io(process.env.REACT_APP_API_URL || '', {
+      reconnectionAttempts: 5,
+      reconnectionDelay: 1000,
+      timeout: 10000
+    });
+    
+    newSocket.on('connect', () => {
+      console.log('Socket connected');
+      setSocketConnected(true);
+      setConnectionError(null);
+    });
+
+    newSocket.on('disconnect', () => {
+      console.log('Socket disconnected');
+      setSocketConnected(false);
+    });
+
+    newSocket.on('connect_error', (err) => {
+      console.error('Socket connection error:', err);
+      setConnectionError(err.message);
+      toast.error('Failed to connect to server');
+    });
+
+    setSocket(newSocket);
+
+    return () => {
+      console.log('Cleaning up socket connection');
+      if (newSocket) newSocket.disconnect();
+    };
+  }, []);
+
+  // Load saved username if available
   useEffect(() => {
     const savedUsername = localStorage.getItem('username');
     if (savedUsername) setUsername(savedUsername);
   }, []);
 
   useEffect(() => {
-    const newSocket = io(process.env.REACT_APP_API_URL || '');
-    setSocket(newSocket);
-
-    newSocket.on('connect_error', (err) => {
-      console.error('Socket error:', err);
-      setConnectionError(err.message);
-      toast.error('Failed to connect to server');
-    });
-
-    return () => newSocket.disconnect();
-  }, []);
+    if (popupMessage) {
+      const timer = setTimeout(() => setPopupMessage(''), 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [popupMessage]);
 
   const saveUsername = (name) => {
     localStorage.setItem('username', name);
@@ -43,24 +72,29 @@ const Home = () => {
 
   const joinRoom = async (roomIdToJoin, isHost = false) => {
     return new Promise((resolve, reject) => {
-      if (!socket) return reject(new Error('Socket not ready'));
+      if (!socket || !socketConnected) {
+        return reject(new Error('Socket not connected'));
+      }
 
       const timeout = setTimeout(() => {
         cleanup();
         reject(new Error('Connection timeout'));
-      }, 5000);
+      }, 10000); // Increased timeout for better reliability
 
       const onRoomJoined = (data) => {
+        console.log('Room joined successfully:', data);
         cleanup();
-        resolve(data);
+        resolve({ success: true, data });
       };
 
       const onRoomNotFound = () => {
+        console.log('Room not found event received');
         cleanup();
         resolve({ status: 'not_found' });
       };
 
       const onError = (err) => {
+        console.error('Socket error during join:', err);
         cleanup();
         reject(new Error(err.message || 'Socket error'));
       };
@@ -76,6 +110,7 @@ const Home = () => {
       socket.once('room-not-found', onRoomNotFound);
       socket.once('error', onError);
 
+      console.log(`Emitting join-room for ${roomIdToJoin} as ${isHost ? 'host' : 'guest'}`);
       socket.emit('join-room', {
         roomId: roomIdToJoin,
         user: { name: username, isHost },
@@ -88,20 +123,36 @@ const Home = () => {
       setError('Name and room name required');
       return;
     }
+    
+    if (!socketConnected) {
+      setError('Not connected to server. Please try again.');
+      toast.error('Server connection failed');
+      return;
+    }
+    
     setError('');
     setIsCreating(true);
     saveUsername(username);
 
     try {
       const newRoomId = uuidv4();
+      console.log('Creating new room with ID:', newRoomId);
+      
+      // Make sure room name is saved before joining
+      localStorage.setItem(`room_${newRoomId}_name`, roomName);
+      
       const result = await joinRoom(newRoomId, true);
 
       if (result.success) {
-        localStorage.setItem(`room_${newRoomId}_name`, roomName);
         toast.success('Room created!');
         navigate(`/room/${newRoomId}?username=${encodeURIComponent(username)}`);
+      } else {
+        // This shouldn't happen when creating a room, but handle it anyway
+        toast.error('Failed to create room');
+        setError('Unexpected error creating room');
       }
     } catch (err) {
+      console.error('Error creating room:', err);
       toast.error('Failed to create room');
       setError(err.message);
     } finally {
@@ -120,30 +171,48 @@ const Home = () => {
       return;
     }
 
+    if (!socketConnected) {
+      setError('Not connected to server. Please try again.');
+      toast.error('Server connection failed');
+      return;
+    }
+
     setError('');
     setIsJoining(true);
     saveUsername(username);
 
     try {
+      console.log('Checking if room exists:', roomId);
       const response = await fetch(`${process.env.REACT_APP_API_URL || ''}/api/check-room/${roomId}`);
       const data = await response.json();
 
-      let joinResult;
-      if (response.ok && data.exists) {
-        joinResult = await joinRoom(roomId, false);
-      } else {
+      if (!response.ok || !data.exists) {
+        console.log('Room not found via API check');
         toast.error('Room not found');
         setError('Room does not exist');
+        setIsJoining(false);
         return;
       }
 
+      console.log('Room exists, attempting to join');
+      const joinResult = await joinRoom(roomId, false);
+
       if (joinResult.success) {
+        console.log('Join successful, navigating to room');
         toast.success('Joined room!');
         setPopupMessage('Joined successfully!');
         setPopupType('success');
         navigate(`/room/${roomId}?username=${encodeURIComponent(username)}`);
+      } else if (joinResult.status === 'not_found') {
+        console.log('Room not found via socket connection');
+        toast.error('Room not found or no longer active');
+        setError('Room exists but is no longer active');
+      } else {
+        toast.error('Failed to join room');
+        setError('Unexpected error joining room');
       }
     } catch (err) {
+      console.error('Error joining room:', err);
       toast.error('Error joining room');
       setError(err.message);
     } finally {
@@ -156,13 +225,6 @@ const Home = () => {
     localStorage.removeItem('userId');
     navigate('/login');
   };
-
-  useEffect(() => {
-    if (popupMessage) {
-      const timer = setTimeout(() => setPopupMessage(''), 3000);
-      return () => clearTimeout(timer);
-    }
-  }, [popupMessage]);
 
   return (
     <>
@@ -183,6 +245,12 @@ const Home = () => {
         </p>
 
         <div className="w-full max-w-md mx-auto text-center rounded-2xl p-8 border border-white/20 bg-white/10 backdrop-blur-xl shadow-xl shadow-white/10">
+          {!socketConnected && (
+            <div className="mb-4 p-2 bg-amber-500/30 border border-amber-500/50 rounded-lg text-amber-200">
+              Connecting to server...
+            </div>
+          )}
+          
           <input
             type="text"
             placeholder="Enter Your Name"
@@ -204,7 +272,7 @@ const Home = () => {
             />
             <button
               onClick={handleCreateRoom}
-              disabled={isCreating}
+              disabled={isCreating || !socketConnected}
               className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 px-4 rounded-lg mb-4 font-bold transition-all disabled:opacity-50"
             >
               {isCreating ? 'Creating...' : '+ Create Room'}
@@ -224,16 +292,24 @@ const Home = () => {
             />
             <button
               onClick={handleJoinRoom}
-              disabled={isJoining}
+              disabled={isJoining || !socketConnected}
               className="w-full bg-green-600 hover:bg-green-700 text-white py-3 px-4 rounded-lg font-bold transition-all disabled:opacity-50"
             >
               {isJoining ? 'Joining...' : '→ Join Room'}
             </button>
           </div>
+
+          {error && (
+            <div className="mt-4 p-2 bg-red-500/30 border border-red-500/50 rounded-lg text-red-200">
+              {error}
+            </div>
+          )}
         </div>
 
         {connectionError && (
-          <div className="mt-4 text-red-400 text-sm">{`Connection Error: ${connectionError}`}</div>
+          <div className="mt-4 text-red-400 text-sm bg-red-900/20 p-2 rounded-lg">
+            {`Connection Error: ${connectionError}`}
+          </div>
         )}
 
         {popupMessage && (

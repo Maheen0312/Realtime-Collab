@@ -18,6 +18,11 @@ const Room = () => {
   const navigate = useNavigate();
   const { roomId } = useParams();
   const location = useLocation();
+  
+  // Get query parameters from URL
+  const queryParams = new URLSearchParams(location.search);
+  const usernameFromUrl = queryParams.get('username');
+  
   const socket = useSocket();  // ✅ Use socket from context
   const codeRef = useRef(null);
   const [clients, setClients] = useState([]);
@@ -31,14 +36,14 @@ const Room = () => {
   const [showSharePopup, setShowSharePopup] = useState(false);
   const [participants, setParticipants] = useState([]);
   const [isRoomValid, setIsRoomValid] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true); // Start with loading state
   const [darkMode, setDarkMode] = useState(true);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [chatCollapsed, setChatCollapsed] = useState(false);
   const [userData, setUserData] = useState({
-    name: stateData.name || localStorage.getItem("username") || "",
+    name: usernameFromUrl || stateData.name || localStorage.getItem("username") || "",
     isHost: stateData.isHost || false,
-    roomname: stateData.roomname || localStorage.getItem("roomName") || ""
+    roomname: stateData.roomname || localStorage.getItem(`room_${roomId}_name`) || ""
   });
 
   const theme = {
@@ -55,165 +60,209 @@ const Room = () => {
     dropdownHover: darkMode ? "hover:bg-gray-700" : "hover:bg-gray-100",
   };
 
+  // Initialize socket connection
   useEffect(() => {
     const init = async () => {
-      socketRef.current = await initSocket();
+      setIsLoading(true);
+      try {
+        const newSocket = await initSocket();
+        socketRef.current = newSocket;
 
-      socketRef.current.on('connect_error', () => {
-        toast.error('Socket connection failed');
-        navigate('/');
-      });
-      socketRef.current.on('connect_failed', () => {
-        toast.error('Socket connection failed');
-        navigate('/');
-      });
-
-      socketRef.current.emit(ACTIONS.JOIN, {
-        roomId,
-        username: userData.name || 'Anonymous',
-      });
-
-      socketRef.current.on(ACTIONS.JOINED, ({ clients, username, socketId }) => {
-        if (username !== userData.name) {
-          toast.success(`${username} joined the room`);
-        }
-        setClients(clients);
-
-        socketRef.current.emit(ACTIONS.SYNC_CODE, {
-          socketId,
-          code: codeRef.current,
-          language,
+        newSocket.on('connect_error', (err) => {
+          console.error('Socket connection error:', err);
+          toast.error('Socket connection failed');
+          setIsLoading(false);
+          navigate('/');
         });
-      });
+        
+        newSocket.on('connect_failed', (err) => {
+          console.error('Socket connection failed:', err);
+          toast.error('Socket connection failed');
+          setIsLoading(false);
+          navigate('/');
+        });
 
-      socketRef.current.on(ACTIONS.DISCONNECTED, ({ socketId, username }) => {
-        toast.success(`${username} left the room`);
-        setClients((prev) => prev.filter((client) => client.socketId !== socketId));
-      });
+        newSocket.on('connect', () => {
+          console.log('Socket connected successfully');
+          
+          if (userData.name) {
+            console.log(`Emitting JOIN action for ${userData.name} in room ${roomId}`);
+            newSocket.emit(ACTIONS.JOIN, {
+              roomId,
+              username: userData.name,
+            });
+          }
+        });
 
-      socketRef.current.on(ACTIONS.LANGUAGE_CHANGE, ({ language: newLang }) => {
-        setLanguage(newLang);
-      });
+        newSocket.on(ACTIONS.JOINED, ({ clients, username, socketId }) => {
+          console.log(`${username} joined, clients:`, clients);
+          if (username !== userData.name) {
+            toast.success(`${username} joined the room`);
+          }
+          setClients(clients);
+          setIsLoading(false);
+
+          if (codeRef.current) {
+            newSocket.emit(ACTIONS.SYNC_CODE, {
+              socketId,
+              code: codeRef.current,
+              language,
+            });
+          }
+        });
+
+        newSocket.on(ACTIONS.DISCONNECTED, ({ socketId, username }) => {
+          toast.success(`${username} left the room`);
+          setClients((prev) => prev.filter((client) => client.socketId !== socketId));
+        });
+
+        newSocket.on(ACTIONS.LANGUAGE_CHANGE, ({ language: newLang }) => {
+          setLanguage(newLang);
+        });
+        
+        // Handle room validation response
+        newSocket.on('room-joined', () => {
+          setIsRoomValid(true);
+          setIsLoading(false);
+          toast.success(`Joined room: ${userData.roomname || roomId}`);
+        });
+
+        newSocket.on('room-not-found', () => {
+          console.error('Room not found');
+          toast.error('Room not found');
+          setIsLoading(false);
+          navigate('/');
+        });
+
+        newSocket.on('error', (error) => {
+          console.error('Socket error:', error);
+          toast.error(error?.message || 'Socket error');
+          setIsLoading(false);
+          navigate('/');
+        });
+      } catch (error) {
+        console.error('Socket initialization error:', error);
+        toast.error('Failed to initialize socket connection');
+        setIsLoading(false);
+        navigate('/');
+      }
     };
 
-    init();
+    if (roomId && userData.name) {
+      init();
+    } else {
+      setIsLoading(false);
+      navigate('/');
+    }
 
     return () => {
-      socketRef.current?.disconnect();
-      socketRef.current?.off(ACTIONS.JOINED);
-      socketRef.current?.off(ACTIONS.DISCONNECTED);
-      socketRef.current?.off(ACTIONS.LANGUAGE_CHANGE);
+      if (socketRef.current) {
+        console.log('Disconnecting socket');
+        socketRef.current.disconnect();
+        socketRef.current.off(ACTIONS.JOINED);
+        socketRef.current.off(ACTIONS.DISCONNECTED);
+        socketRef.current.off(ACTIONS.LANGUAGE_CHANGE);
+        socketRef.current.off('room-joined');
+        socketRef.current.off('room-not-found');
+        socketRef.current.off('error');
+      }
     };
-  }, [roomId, userData.name, navigate]);
+  }, [roomId, userData.name, language, navigate]);
 
+  // Initial authentication and room validation
   useEffect(() => {
-    const token = localStorage.getItem("token");
-    if (!token) {
-      navigate("/login");
-      return;
-    }
+    const verifyRoomAndUser = async () => {
+      setIsLoading(true);
+      const token = localStorage.getItem("token");
+      
+      if (!token) {
+        console.log('No token found, redirecting to login');
+        navigate("/login");
+        return;
+      }
 
-    const userName = stateData.name || localStorage.getItem("username");
-    if (!userName) {
-      navigate("/");
-      return;
-    }
+      const userName = usernameFromUrl || stateData.name || localStorage.getItem("username");
+      if (!userName) {
+        console.log('No username found, redirecting to home');
+        navigate("/");
+        return;
+      }
 
-    setUserData((prev) => ({
-      ...prev,
-      name: userName,
-      isHost: stateData.isHost || false,
-      roomname: stateData.roomname || localStorage.getItem("roomName") || ""
-    }));
+      if (!roomId) {
+        console.log('No room ID found, redirecting to home');
+        navigate("/");
+        return;
+      }
 
-    localStorage.setItem("currentRoomId", roomId);
+      setUserData((prev) => ({
+        ...prev,
+        name: userName,
+        isHost: stateData.isHost || false,
+        roomname: stateData.roomname || localStorage.getItem(`room_${roomId}_name`) || ""
+      }));
 
-    if (!roomId) {
-      navigate("/");
-      return;
-    }
+      localStorage.setItem("currentRoomId", roomId);
+      localStorage.setItem("username", userName); // Ensure username is stored
 
-    if (stateData.isHost) {
-      setIsRoomValid(true);
-      setIsLoading(false);
-      return;
-    }
+      // If user is the host, we don't need to check if room exists
+      if (stateData.isHost) {
+        console.log('User is host, skipping room validation');
+        setIsRoomValid(true);
+        setIsLoading(false);
+        return;
+      }
 
-    setIsLoading(true);
-    fetch(`${API_BASE_URL}/api/check-room/${roomId}`)
-      .then(res => res.json())
-      .then(data => {
-        if (!data.exists) {
-          alert("Invalid Room ID. Redirecting.");
-          navigate("/");
-        } else {
+      try {
+        console.log(`Checking if room ${roomId} exists`);
+        const response = await fetch(`${API_BASE_URL}/api/check-room/${roomId}`);
+        
+        if (!response.ok) {
+          throw new Error(`API error: ${response.status}`);
+        }
+        
+        const data = await response.json();
+        
+        if (data.exists) {
+          console.log('Room exists:', data);
           setIsRoomValid(true);
           if (data.roomname) {
-            localStorage.setItem("roomName", data.roomname);
+            localStorage.setItem(`room_${roomId}_name`, data.roomname);
             setUserData((prev) => ({ ...prev, roomname: data.roomname }));
           }
+        } else {
+          console.error('Room does not exist');
+          toast.error("Invalid Room ID");
+          navigate("/");
         }
+      } catch (error) {
+        console.error('Room validation error:', error);
+        toast.error("Room validation failed");
+      } finally {
         setIsLoading(false);
-      })
-      .catch(() => {
-        alert("Room validation failed.");
-        navigate("/");
-        setIsLoading(false);
-      });
-  }, [roomId, navigate, stateData]);
-
-  useEffect(() => {
-    if (!socket || !isRoomValid || !userData.name) return;
-
-    const joinRoom = () => {
-      socket.emit("join-room", {
-        roomId,
-        user: {
-          name: userData.name,
-          isHost: userData.isHost,
-          id: socket.id,
-          video: false,
-          audio: false,
-        },
-      });
+      }
     };
 
-    const handleConnect = () => {
-      joinRoom();
-    };
+    verifyRoomAndUser();
+  }, [roomId, navigate, stateData, usernameFromUrl]);
 
-    socket.on("connect", handleConnect);
-    socket.on("room-joined", () => {
-      setIsLoading(false);
-      showToast(`Joined: ${userData.roomname || roomId}`, "success");
-    });
-
-    socket.on("room-not-found", () => {
-      alert("Room not found.");
-      navigate("/");
-    });
-
-    socket.on("error", (error) => {
-      alert(error?.message || "Socket error");
-      navigate("/");
-    });
-
-    if (socket.connected) joinRoom();
-
-    return () => {
-      socket.off("connect", handleConnect);
-      socket.off("room-joined");
-      socket.off("room-not-found");
-      socket.off("error");
-    };
-  }, [socket, isRoomValid, roomId, userData, navigate]);
-
+  // Handle participants updates
   useEffect(() => {
     if (!socket || !isRoomValid) return;
 
-    const handleParticipants = (list) => setParticipants(list);
-    const handleUserJoined = (user) => showToast(`${user.name} joined`);
-    const handleUserLeft = (user) => showToast(`${user.name} left`);
+    const handleParticipants = (list) => {
+      console.log('Received participants:', list);
+      setParticipants(list);
+    };
+    
+    const handleUserJoined = (user) => {
+      console.log('User joined:', user);
+      toast.success(`${user.name} joined`);
+    };
+    
+    const handleUserLeft = (user) => {
+      console.log('User left:', user);
+      toast.success(`${user.name} left`);
+    };
 
     socket.on("room-participants", handleParticipants);
     socket.on("user-joined", handleUserJoined);
@@ -223,7 +272,10 @@ const Room = () => {
       socket.off("room-participants", handleParticipants);
       socket.off("user-joined", handleUserJoined);
       socket.off("user-left", handleUserLeft);
-      if (socket.connected) socket.emit("leave-room", { roomId });
+      
+      if (socket.connected) {
+        socket.emit("leave-room", { roomId });
+      }
     };
   }, [socket, isRoomValid, roomId]);
 
@@ -272,11 +324,13 @@ const Room = () => {
   };
 
   const toggleTerminal = () => setShowTerminal((prev) => !prev);
+  
   const leaveRoom = () => {
     if (socket?.connected) socket.emit("leave-room", { roomId });
     localStorage.removeItem("currentRoomId");
     navigate("/");
   };
+  
   const handleLanguageChange = (e) => {
     const newLanguage = e.target.value;
     setLanguage(newLanguage);
@@ -285,6 +339,7 @@ const Room = () => {
       language: newLanguage,
     });
   };
+  
   const getParticipantData = () => {
     const data = {};
     participants.forEach(p => {
@@ -292,11 +347,13 @@ const Room = () => {
     });
     return data;
   };
+  
   const copyRoomId = () => {
     navigator.clipboard.writeText(roomId)
       .then(() => showToast("Room ID copied!", "success"))
       .catch(() => showToast("Copy failed", "error"));
   };
+  
   const shareRoomId = (platform) => {
     const roomURL = `${window.location.origin}/room/${roomId}`;
     let url = '';
@@ -315,7 +372,6 @@ const Room = () => {
     window.open(url, '_blank');
   };
         
-  
   return (
     <div className={`flex flex-col h-screen w-full ${theme.bg} ${theme.text} font-sans transition-colors duration-300`}>
       <input type="file" ref={fileInputRef} style={{ display: "none" }} onChange={handleFileOpen} />
@@ -541,6 +597,7 @@ const Room = () => {
         </div>
       )}
 
+      {/* Share popup */}
       {showSharePopup && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-[#1e293b] border border-[#334155] rounded-xl p-6 w-96">
@@ -555,6 +612,22 @@ const Room = () => {
         </div>
       )}
 
+      {/* Toast messages */}
+      <div className="fixed bottom-4 right-4 z-50">
+        {toastMessages.map((toast) => (
+          <div 
+            key={toast.id}
+            className={`mb-2 px-4 py-2 rounded-lg shadow-lg text-white ${
+              toast.type === 'success' ? 'bg-green-500' : 
+              toast.type === 'error' ? 'bg-red-500' : 'bg-blue-500'
+            }`}
+          >
+            {toast.message}
+          </div>
+        ))}
+      </div>
+
+      {/* Loading overlay */}
       {isLoading && (
         <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50">
           <div className="text-center">
