@@ -7,7 +7,7 @@ const mongoose = require("mongoose");
 const { Server } = require("socket.io");
 const { spawn } = require("child_process");
 const fs = require("fs");
-const { setupWSConnection } = require('y-websocket/bin/utils');
+const setupWSConnection = require('y-websocket').setupWSConnection; // ✅ IF it's officially exported
 // Import socket handlers and API setup
 const {
   setupSocketHandlers,
