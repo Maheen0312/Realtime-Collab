@@ -1,156 +1,68 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { EditorView, keymap, highlightActiveLine } from '@codemirror/view';
-import { EditorState } from '@codemirror/state';
-import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
-import { lineNumbers, highlightActiveLineGutter } from '@codemirror/gutter';
-import { foldGutter, indentOnInput } from '@codemirror/language';
-import { bracketMatching } from '@codemirror/matchbrackets';
-import { closeBrackets, closeBracketsKeymap } from '@codemirror/closebrackets';
-import { autocompletion, completionKeymap } from '@codemirror/autocomplete';
-import { rectangularSelection } from '@codemirror/rectangular-selection';
-import { highlightSelectionMatches } from '@codemirror/search';
-import { javascript } from '@codemirror/lang-javascript';
-import { html } from '@codemirror/lang-html';
-import { css } from '@codemirror/lang-css';
-import { python } from '@codemirror/lang-python';
-import { cpp } from '@codemirror/lang-cpp';
-import { java } from '@codemirror/lang-java';
-import { yCollab } from 'y-codemirror.next';
-import * as Y from 'yjs';
-import { WebsocketProvider } from 'y-websocket';
+import React, { useEffect, useRef } from 'react';
+import CodeMirror from 'codemirror';
+import 'codemirror/lib/codemirror.css';
+import 'codemirror/theme/dracula.css';
+import 'codemirror/mode/javascript/javascript';
+import 'codemirror/addon/edit/closetag';
+import 'codemirror/addon/edit/closebrackets';
+import ACTIONS from '../action';
 
-const languageExtensions = {
-  javascript,
-  html,
-  css,
-  python,
-  cpp,
-  java,
-};
+function Editor({ socketRef, roomId, onCodeChange }) {
+    const editorRef = useRef(null);
 
-const languageMap = {
-  javascript: 63,
-  python: 71,
-  cpp: 54,
-  java: 62,
-  html: 93,
-  css: 93,
-};
+    useEffect(() => {
+        // Initialize CodeMirror instance
+        const textarea = document.getElementById('realtimeEditor');
+        editorRef.current = CodeMirror.fromTextArea(textarea, {
+            mode: 'javascript',
+            theme: 'dracula',
+            autoCloseTags: true,
+            autoCloseBrackets: true,
+            lineNumbers: true,
+        });
 
-const CollaborativeEditor = ({ roomId }) => {
-  const editorRef = useRef();
-  const viewRef = useRef();
-  const [language, setLanguage] = useState('javascript');
-  const [output, setOutput] = useState('');
-  const [error, setError] = useState('');
+        // Handle local code changes and emit to other clients
+        const handleCodeChange = (instance, changes) => {
+            const { origin } = changes;
+            const code = instance.getValue();
 
-  useEffect(() => {
-    const ydoc = new Y.Doc();
-    const provider = new WebsocketProvider('wss://realtime-collab-backend-mysh.onrender.com', roomId, ydoc);
-    provider.on('status', (event) => {
-      if (event.status === 'connected') {
-        console.log('WebSocket connected');
-      } else {
-        console.error('WebSocket connection failed', event);
-      }
-    });
+            onCodeChange(code);
 
-    const ytext = ydoc.getText('codemirror');
+            // Emit the code change to other clients in the same room
+            if (origin !== 'setValue' && socketRef.current) {
+                socketRef.current.emit(ACTIONS.CODE_CHANGE, {
+                    roomId,
+                    code,
+                });
+            }
+        };
 
-    const languageExtension = languageExtensions[language] || javascript;
+        editorRef.current.on('change', handleCodeChange);
 
-    const state = EditorState.create({
-      doc: ytext.toString(),
-      extensions: [
-        lineNumbers(),
-        highlightActiveLineGutter(),
-        history(),
-        foldGutter(),
-        indentOnInput(),
-        bracketMatching(),
-        closeBrackets(),
-        autocompletion(),
-        rectangularSelection(),
-        highlightActiveLine(),
-        highlightSelectionMatches(),
-        keymap.of([...defaultKeymap, ...historyKeymap, ...closeBracketsKeymap, ...completionKeymap]),
-        languageExtension(),
-        yCollab(ytext, provider.awareness),
-        EditorView.lineWrapping
-      ],
-    });
+        return () => {
+            editorRef.current.off('change', handleCodeChange);
+            editorRef.current.toTextArea(); // Clean up the CodeMirror instance
+        };
+    }, []);
 
-    const view = new EditorView({
-      state,
-      parent: editorRef.current,
-    });
+    useEffect(() => {
+        // Listen for code changes from other clients
+        if (socketRef.current) {
+            socketRef.current.on(ACTIONS.CODE_CHANGE, ({ code }) => {
+                if (code !== null) {
+                    editorRef.current.setValue(code);
+                }
+            });
+        }
 
-    viewRef.current = view;
+        return () => {
+            if (socketRef.current) {
+                socketRef.current.off(ACTIONS.CODE_CHANGE);
+            }
+        };
+    }, [ socketRef.current ]);
 
-    return () => {
-      view.destroy();
-      provider.destroy();
-      ydoc.destroy();
-    };
-  }, [roomId, language]);
+    return <textarea id="realtimeEditor"></textarea>;
+}
 
-  const runCode = async () => {
-    const code = viewRef.current.state.doc.toString();
-    const langId = languageMap[language];
-
-    try {
-      const response = await fetch('https://judge0-ce.p.rapidapi.com/submissions?base64_encoded=false&wait=true', {
-        method: 'POST',
-        headers: {
-          "content-type": "application/json",
-          "X-RapidAPI-Key": "d6915d0f2emsha6752c36c811d2ep1adfbdjsna851c64946a5",
-          "X-RapidAPI-Host": "judge0-ce.p.rapidapi.com",
-        },
-        body: JSON.stringify({
-          source_code: code,
-          language_id: langId
-        })
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to execute code');
-      }
-
-      const result = await response.json();
-      setOutput(result.stdout || result.stderr || 'No output');
-      setError('');
-    } catch (error) {
-      setOutput('');
-      setError(`Error: ${error.message}`);
-    }
-  };
-
-  return (
-    <div style={{ height: '100%', width: '100%' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-        <select value={language} onChange={e => setLanguage(e.target.value)}>
-          <option value="javascript">JavaScript</option>
-          <option value="python">Python</option>
-          <option value="cpp">C++</option>
-          <option value="java">Java</option>
-          <option value="html">HTML</option>
-          <option value="css">CSS</option>
-        </select>
-        <button onClick={runCode}>Run Code</button>
-      </div>
-      <div ref={editorRef} style={{ height: '400px', width: '100%', border: '1px solid #ccc', borderRadius: '5px' }} />
-      {error && (
-        <div style={{ marginTop: '10px', background: '#f8d7da', color: '#721c24', padding: '10px', borderRadius: '5px' }}>
-          <strong>Error:</strong>
-          <div>{error}</div>
-        </div>
-      )}
-      <div style={{ marginTop: '10px', background: '#1e1e1e', color: '#dcdcdc', padding: '10px', borderRadius: '5px', whiteSpace: 'pre-wrap' }}>
-        <strong>Output:</strong>
-        <div>{output}</div>
-      </div>
-    </div>
-  );
-};
-
-export default CollaborativeEditor;
+export default Editor;

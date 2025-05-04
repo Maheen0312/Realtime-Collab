@@ -17,6 +17,7 @@ const Room = () => {
   const fileInputRef = useRef(null);
   const editorRef = useRef(null);
   const navigate = useNavigate();
+  const reactNavigator = useNavigate();
   const { roomId } = useParams();
   const location = useLocation();
   const [userId] = useState(uuidV4());
@@ -67,6 +68,70 @@ const Room = () => {
   };
 
   // Initialize socket connection
+  
+
+  useEffect(() => {
+      const init = async () => {
+          socketRef.current = await initSocket();
+          socketRef.current.on('connect_error', (err) => handleErrors(err));
+          socketRef.current.on('connect_failed', (err) => handleErrors(err));
+
+          function handleErrors(e) {
+              console.log('socket error', e);
+              toast.error('Socket connection failed, try again later.');
+              reactNavigator('/');
+          }
+
+          socketRef.current.emit(ACTIONS.JOIN, {
+              roomId,
+              username: location.state?.username,
+          });
+
+          // Listening for joined event
+          socketRef.current.on(
+              ACTIONS.JOINED,
+              ({ clients, username, socketId }) => {
+                  if (username !== location.state?.username) {
+                      toast.success(`${username} joined the room.`);
+                      console.log(`${username} joined`);
+                  }
+
+                  // Update the clients list with a unique list of clients using socketId
+                  const uniqueClients = clients.filter(
+                      (client, index, self) =>
+                          index === self.findIndex(c => c.username === client.username)
+                  );
+
+                  setClients(uniqueClients);
+                  // for syncing the code from the start
+                  socketRef.current.emit(ACTIONS.SYNC_CODE, {
+                      code: codeRef.current,
+                      socketId,
+                  });
+              });
+
+          // listening for disconnected
+          socketRef.current.on(ACTIONS.DISCONNECTED, ({ socketId, username }) => {
+              if (username) {
+                  toast.success(`${username} left the room`);
+                  setClients((prevClients) => {
+                      return prevClients.filter(client => client.socketId !== socketId);
+                  });
+              }
+          });
+      };
+
+      init();
+
+      // listener cleaning function
+      return () => {
+          if (socketRef.current) {
+              socketRef.current.disconnect();
+              socketRef.current.off(ACTIONS.JOINED);
+              socketRef.current.off(ACTIONS.DISCONNECTED);
+          }
+      }
+  }, [ location.state?.username, reactNavigator, roomId ]);
   useEffect(() => {
     const init = async () => {
       setIsLoading(true);
@@ -88,44 +153,6 @@ const Room = () => {
           navigate('/');
         });
 
-        newSocket.on('connect', () => {
-          console.log('Socket connected successfully');
-          
-          if (userData.name) {
-            console.log(`Emitting JOIN action for ${userData.name} in room ${roomId}`);
-            newSocket.emit(ACTIONS.JOIN, {
-              roomId,
-              username: userData.name,
-            });
-          }
-        });
-
-        newSocket.on(ACTIONS.JOINED, ({ clients, username, socketId }) => {
-          console.log(`${username} joined, clients:`, clients);
-          if (username !== userData.name) {
-            toast.success(`${username} joined the room`);
-          }
-          setClients(clients);
-          setIsLoading(false);
-
-          if (codeRef.current) {
-            newSocket.emit(ACTIONS.SYNC_CODE, {
-              socketId,
-              code: codeRef.current,
-              language,
-            });
-          }
-        });
-
-        newSocket.on(ACTIONS.DISCONNECTED, ({ socketId, username }) => {
-          toast.success(`${username} left the room`);
-          setClients((prev) => prev.filter((client) => client.socketId !== socketId));
-        });
-
-        newSocket.on(ACTIONS.LANGUAGE_CHANGE, ({ language: newLang }) => {
-          setLanguage(newLang);
-        });
-        
         // Handle room validation response
         newSocket.on('room-joined', () => {
           setIsRoomValid(true);
@@ -543,12 +570,11 @@ const Room = () => {
         <div className={`flex flex-col ${sidebarCollapsed ? 'w-3/4' : 'w-7/12'} ${chatCollapsed ? 'w-11/12' : ''} transition-all duration-300`}>          
           {/* Editor component */}
           <div className="flex-grow overflow-hidden">
-            <Editor 
-              socketRef={socketRef}
-              roomId={roomId}
-              language={language}
-              codeRef={codeRef}
-            />
+                <Editor
+                    socketRef={socketRef}
+                    roomId={roomId}
+                    onCodeChange={(code) => { codeRef.current = code }}
+                />
           </div>
         </div>
 
