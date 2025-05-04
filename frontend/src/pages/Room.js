@@ -110,19 +110,21 @@ const Room = () => {
           });
         });
 
-        // User joined event
         newSocket.on(ACTIONS.JOINED, ({ clients, username, socketId }) => {
           console.log(`${username} joined, clients:`, clients);
           if (username !== userData.name) {
             toast.success(`${username} joined the room`);
           }
           
-          // Create a unique list of clients
-          const uniqueClients = Array.isArray(clients) ? 
-            clients.filter((client, index, self) => 
-              index === self.findIndex(c => c.socketId === client.socketId)) 
-            : [];
-            
+          // Ensure clients is always an array before processing
+          const clientsArray = Array.isArray(clients) ? clients : [];
+          
+          // Create a unique list of clients with proper deduplication
+          const uniqueClients = clientsArray.filter((client, index, self) => 
+            index === self.findIndex(c => c.socketId === client.socketId)
+          );
+          
+          // Update clients state with the unique list
           setClients(uniqueClients);
           setIsLoading(false);
           
@@ -134,6 +136,9 @@ const Room = () => {
             });
           }
         });
+        useEffect(() => {
+          console.log("Current clients:", clients);
+        }, [clients]);
 
         // User disconnected event
         newSocket.on(ACTIONS.DISCONNECTED, ({ socketId, username }) => {
@@ -557,7 +562,7 @@ const Room = () => {
 
         <div className="flex items-center space-x-3">
           <div className="bg-gray-900 text-white p-2 rounded-lg shadow-md text-sm">
-            Participants: {clients.length || 0}
+             Participants: {clients.length}
           </div>
 
           <button 

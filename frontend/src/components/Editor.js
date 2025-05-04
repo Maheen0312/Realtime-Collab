@@ -89,7 +89,49 @@ function Editor({ socketRef, roomId, onCodeChange, language = 'javascript' }) {
             }
         };
     }, [language]);
-
+    
+    useEffect(() => {
+        if (!editorRef.current) return;
+        
+        // Handle local code changes and emit to other clients
+        const handleCodeChange = (instance, changes) => {
+          const { origin } = changes;
+          const code = instance.getValue();
+          codeRef.current = code; // Keep track of our current code
+          
+          // Update parent component with code changes
+          onCodeChange && onCodeChange(code);
+      
+          // Emit the code change to other clients in the same room
+          // But only if the change originated from the user (not from setValue)
+          if (origin !== 'setValue' && socketRef.current) {
+            try {
+              console.log('Emitting code change to room:', roomId);
+              // Emit directly to the room rather than checking connected state
+              socketRef.current.emit(ACTIONS.CODE_CHANGE, {
+                roomId,
+                code,
+              });
+            } catch (err) {
+              console.error('Failed to emit code change:', err);
+              setError('Connection issue. Changes may not be synced.');
+              setConnected(false);
+            }
+          }
+        };
+      
+        // Ensure we attach the change handler only once
+        editorRef.current.on('change', handleCodeChange);
+        
+        console.log('Editor change handler attached');
+      
+        return () => {
+          if (editorRef.current) {
+            editorRef.current.off('change', handleCodeChange);
+            console.log('Editor change handler removed');
+          }
+        };
+      }, [roomId]); 
     // Initialize socket connection and handle socket events
     useEffect(() => {
         if (!socketRef.current) {
@@ -112,33 +154,36 @@ function Editor({ socketRef, roomId, onCodeChange, language = 'javascript' }) {
             }
         }
 
-        // Handle socket connection status
-        const handleConnect = () => {
-            console.log('Socket connected successfully');
-            setConnected(true);
-            setError(null);
-            
-            // Join the room once connected
-            socketRef.current.emit(ACTIONS.JOIN, {
-                roomId,
-                username: localStorage.getItem('username') || 'Anonymous'
-            });
-
-            // Sync the latest code after joining
-            if (codeRef.current) {
-                // Slight delay to ensure we've joined the room
-                setTimeout(() => {
-                    socketRef.current.emit(ACTIONS.SYNC_CODE, {
-                        roomId,
-                        code: codeRef.current
-                    });
-                }, 500);
-            } else {
-                // Request code from others if we don't have any
-                socketRef.current.emit(ACTIONS.GET_CODE, { roomId });
-            }
-        };
-        
+       // Handle socket connection status
+const handleConnect = () => {
+    console.log('Socket connected successfully');
+    setConnected(true);
+    setError(null);
+    
+    // Join the room once connected
+    socketRef.current.emit(ACTIONS.JOIN, {
+      roomId,
+      username: localStorage.getItem('username') || 'Anonymous'
+    });
+  
+    // More aggressive code synchronization
+    setTimeout(() => {
+      // First request code from others
+      socketRef.current.emit(ACTIONS.GET_CODE, { roomId });
+      
+      // Then after a short delay, share our code if we have any
+      setTimeout(() => {
+        if (codeRef.current) {
+          console.log('Syncing our code to room after join');
+          socketRef.current.emit(ACTIONS.SYNC_CODE, {
+            roomId,
+            code: codeRef.current
+          });
+        }
+      }, 1000);
+    }, 500);
+  };
+  
         const handleDisconnect = () => {
             console.log('Socket disconnected');
             setConnected(false);
@@ -151,23 +196,31 @@ function Editor({ socketRef, roomId, onCodeChange, language = 'javascript' }) {
             setError(`Connection error: ${err.message || 'Unknown error'}`);
         };
 
-        // Listen for code changes from other clients
         const handleCodeUpdate = ({ code }) => {
-            if (code !== null && editorRef.current && code !== codeRef.current) {
+            if (code !== null && editorRef.current) {
+              console.log('Received code update from another client');
+              
+              // Only update if the code is different from what we have
+              if (code !== codeRef.current) {
                 // Save cursor position
                 const cursor = editorRef.current.getCursor();
+                const scrollInfo = editorRef.current.getScrollInfo();
                 
                 // Update code without triggering change event
                 editorRef.current.setValue(code);
                 codeRef.current = code;
                 
-                // Restore cursor position
+                // Restore cursor position and scroll position
                 editorRef.current.setCursor(cursor);
+                editorRef.current.scrollTo(scrollInfo.left, scrollInfo.top);
                 
                 // Notify parent component
                 onCodeChange && onCodeChange(code);
+                
+                console.log('Code updated from remote source');
+              }
             }
-        };
+          };
 
         // Handle code sync requests from other clients
         const handleGetCode = ({ socketId }) => {
