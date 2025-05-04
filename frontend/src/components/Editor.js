@@ -6,6 +6,7 @@ import 'codemirror/mode/javascript/javascript';
 import 'codemirror/mode/jsx/jsx';
 import 'codemirror/mode/css/css';
 import 'codemirror/mode/htmlmixed/htmlmixed';
+import 'codemirror/mode/python/python';
 import 'codemirror/addon/edit/closetag';
 import 'codemirror/addon/edit/closebrackets';
 import 'codemirror/addon/selection/active-line';
@@ -35,6 +36,7 @@ function Editor({ socketRef, roomId, onCodeChange, language = 'javascript' }) {
     const [error, setError] = useState(null);
     const [output, setOutput] = useState('');
     const [isRunning, setIsRunning] = useState(false);
+    const codeRef = useRef(''); // Store the current code to prevent circular updates
     
     // Map file extensions/types to CodeMirror modes
     const getLanguageMode = (lang) => {
@@ -57,31 +59,8 @@ function Editor({ socketRef, roomId, onCodeChange, language = 'javascript' }) {
         return modes[lang.toLowerCase()] || 'javascript';
     };
 
-    // Initialize socket connection if not already connected
+    // Initialize CodeMirror instance
     useEffect(() => {
-        if (!socketRef.current) {
-            setError('Socket not connected. Collaborative editing disabled.');
-            setConnected(false);
-            return;
-        }
-
-        // Check if socket is connected
-        if (socketRef.current.connected) {
-            setConnected(true);
-            setError(null);
-        } else {
-            // Try to connect if not already connecting
-            try {
-                socketRef.current.connect();
-            } catch (err) {
-                console.error('Failed to connect socket:', err);
-                setError('Failed to connect to server. Please try again.');
-            }
-        }
-    }, [socketRef]);
-
-    useEffect(() => {
-        // Initialize CodeMirror instance
         const textarea = document.getElementById('realtimeEditor');
         editorRef.current = CodeMirror.fromTextArea(textarea, {
             mode: getLanguageMode(language),
@@ -104,15 +83,152 @@ function Editor({ socketRef, roomId, onCodeChange, language = 'javascript' }) {
             editorRef.current.refresh();
         }, 100);
 
+        return () => {
+            if (editorRef.current) {
+                editorRef.current.toTextArea(); // Clean up the CodeMirror instance
+            }
+        };
+    }, [language]);
+
+    // Initialize socket connection and handle socket events
+    useEffect(() => {
+        if (!socketRef.current) {
+            setError('Socket not connected. Collaborative editing disabled.');
+            setConnected(false);
+            return;
+        }
+
+        // Check if socket is connected
+        if (socketRef.current.connected) {
+            setConnected(true);
+            setError(null);
+        } else {
+            // Try to connect if not already connecting
+            try {
+                socketRef.current.connect();
+            } catch (err) {
+                console.error('Failed to connect socket:', err);
+                setError('Failed to connect to server. Please try again.');
+            }
+        }
+
+        // Handle socket connection status
+        const handleConnect = () => {
+            console.log('Socket connected successfully');
+            setConnected(true);
+            setError(null);
+            
+            // Join the room once connected
+            socketRef.current.emit(ACTIONS.JOIN, {
+                roomId,
+                username: localStorage.getItem('username') || 'Anonymous'
+            });
+
+            // Sync the latest code after joining
+            if (codeRef.current) {
+                // Slight delay to ensure we've joined the room
+                setTimeout(() => {
+                    socketRef.current.emit(ACTIONS.SYNC_CODE, {
+                        roomId,
+                        code: codeRef.current
+                    });
+                }, 500);
+            } else {
+                // Request code from others if we don't have any
+                socketRef.current.emit(ACTIONS.GET_CODE, { roomId });
+            }
+        };
+        
+        const handleDisconnect = () => {
+            console.log('Socket disconnected');
+            setConnected(false);
+            setError('Disconnected from server. Attempting to reconnect...');
+        };
+
+        const handleError = (err) => {
+            console.error('Socket error:', err);
+            setConnected(false);
+            setError(`Connection error: ${err.message || 'Unknown error'}`);
+        };
+
+        // Listen for code changes from other clients
+        const handleCodeUpdate = ({ code }) => {
+            if (code !== null && editorRef.current && code !== codeRef.current) {
+                // Save cursor position
+                const cursor = editorRef.current.getCursor();
+                
+                // Update code without triggering change event
+                editorRef.current.setValue(code);
+                codeRef.current = code;
+                
+                // Restore cursor position
+                editorRef.current.setCursor(cursor);
+                
+                // Notify parent component
+                onCodeChange && onCodeChange(code);
+            }
+        };
+
+        // Handle code sync requests from other clients
+        const handleGetCode = ({ socketId }) => {
+            // Send our current code to the requesting client
+            if (socketRef.current && editorRef.current) {
+                const code = editorRef.current.getValue();
+                socketRef.current.emit(ACTIONS.CODE_SYNC, {
+                    code,
+                    socketId,
+                });
+            }
+        };
+
+        // Set up socket event listeners
+        socketRef.current.on('connect', handleConnect);
+        socketRef.current.on('disconnect', handleDisconnect);
+        socketRef.current.on('error', handleError);
+        socketRef.current.on(ACTIONS.CODE_CHANGE, handleCodeUpdate);
+        socketRef.current.on(ACTIONS.GET_CODE, handleGetCode);
+        socketRef.current.on(ACTIONS.CODE_OUTPUT, ({ output: remoteOutput }) => {
+            if (remoteOutput !== null) {
+                setOutput(remoteOutput);
+            }
+        });
+
+        // If socket is already connected, manually trigger join room
+        if (socketRef.current.connected) {
+            handleConnect();
+        }
+
+        // Clean up event listeners when component unmounts
+        return () => {
+            if (socketRef.current) {
+                socketRef.current.off('connect', handleConnect);
+                socketRef.current.off('disconnect', handleDisconnect);
+                socketRef.current.off('error', handleError);
+                socketRef.current.off(ACTIONS.CODE_CHANGE, handleCodeUpdate);
+                socketRef.current.off(ACTIONS.GET_CODE, handleGetCode);
+                socketRef.current.off(ACTIONS.CODE_OUTPUT);
+                
+                // Leave the room when unmounting
+                socketRef.current.emit(ACTIONS.LEAVE, { roomId });
+            }
+        };
+    }, [socketRef.current, roomId]);
+
+    // Set up the editor change event listener
+    useEffect(() => {
+        if (!editorRef.current) return;
+        
         // Handle local code changes and emit to other clients
         const handleCodeChange = (instance, changes) => {
             const { origin } = changes;
             const code = instance.getValue();
-
+            codeRef.current = code; // Keep track of our current code
+            
             // Update parent component with code changes
             onCodeChange && onCodeChange(code);
 
             // Emit the code change to other clients in the same room
+            // But only if the change originated from the user (not from setValue)
             if (origin !== 'setValue' && socketRef.current && connected) {
                 try {
                     socketRef.current.emit(ACTIONS.CODE_CHANGE, {
@@ -130,68 +246,11 @@ function Editor({ socketRef, roomId, onCodeChange, language = 'javascript' }) {
         editorRef.current.on('change', handleCodeChange);
 
         return () => {
-            editorRef.current.off('change', handleCodeChange);
-            editorRef.current.toTextArea(); // Clean up the CodeMirror instance
-        };
-    }, [language]);
-
-    useEffect(() => {
-        if (!socketRef.current) {
-            return;
-        }
-
-        // Listen for socket connection status
-        const handleConnect = () => {
-            console.log('Socket connected successfully');
-            setConnected(true);
-            setError(null);
-            
-            // Join the room once connected
-            socketRef.current.emit(ACTIONS.JOIN, {
-                roomId,
-                username: localStorage.getItem('username') || 'Anonymous'
-            });
-        };
-        
-        const handleDisconnect = () => {
-            console.log('Socket disconnected');
-            setConnected(false);
-            setError('Disconnected from server. Attempting to reconnect...');
-        };
-
-        const handleError = (err) => {
-            console.error('Socket error:', err);
-            setConnected(false);
-            setError(`Connection error: ${err.message || 'Unknown error'}`);
-        };
-
-        // Listen for code changes from other clients
-        const handleCodeUpdate = ({ code }) => {
-            if (code !== null && editorRef.current) {
-                // Save cursor position
-                const cursor = editorRef.current.getCursor();
-                // Update code without triggering change event
-                editorRef.current.setValue(code);
-                // Restore cursor position
-                editorRef.current.setCursor(cursor);
+            if (editorRef.current) {
+                editorRef.current.off('change', handleCodeChange);
             }
         };
-
-        socketRef.current.on('connect', handleConnect);
-        socketRef.current.on('disconnect', handleDisconnect);
-        socketRef.current.on('error', handleError);
-        socketRef.current.on(ACTIONS.CODE_CHANGE, handleCodeUpdate);
-
-        // Clean up event listeners when component unmounts
-        return () => {
-            if (socketRef.current) {
-                socketRef.current.off('connect', handleConnect);
-                socketRef.current.off('disconnect', handleDisconnect);
-                socketRef.current.off('error', handleError);
-                socketRef.current.off(ACTIONS.CODE_CHANGE, handleCodeUpdate);
-            }
-        };
-    }, [socketRef.current, roomId]);
+    }, [connected, socketRef.current, roomId]);
 
     // Change language mode if it changes
     useEffect(() => {
@@ -305,24 +364,18 @@ function Editor({ socketRef, roomId, onCodeChange, language = 'javascript' }) {
         }
     };
 
-    // Listen for code execution results from other users
-    useEffect(() => {
-        if (!socketRef.current) return;
-
-        const handleOutputUpdate = ({ output: remoteOutput }) => {
-            if (remoteOutput !== null) {
-                setOutput(remoteOutput);
+    // Function to manually request code sync
+    const syncCode = () => {
+        if (socketRef.current && connected) {
+            try {
+                socketRef.current.emit(ACTIONS.GET_CODE, { roomId });
+                setOutput('Syncing code from other users...');
+            } catch (err) {
+                console.error('Failed to request code sync:', err);
+                setError('Failed to sync code. Please try again.');
             }
-        };
-
-        socketRef.current.on(ACTIONS.CODE_OUTPUT, handleOutputUpdate);
-
-        return () => {
-            if (socketRef.current) {
-                socketRef.current.off(ACTIONS.CODE_OUTPUT, handleOutputUpdate);
-            }
-        };
-    }, [socketRef.current]);
+        }
+    };
 
     return (
         <div className="h-full flex flex-col">
@@ -361,6 +414,13 @@ function Editor({ socketRef, roomId, onCodeChange, language = 'javascript' }) {
                     <div className="p-2 bg-gray-800 flex justify-between items-center">
                         <span className="text-gray-300 font-semibold">Output</span>
                         <div className="flex gap-2">
+                            <button 
+                                className="px-3 py-1 rounded bg-purple-600 hover:bg-purple-700 text-white"
+                                onClick={syncCode}
+                                disabled={!connected}
+                            >
+                                Sync Code
+                            </button>
                             <button 
                                 className={`px-3 py-1 rounded text-white ${isRunning ? 'bg-gray-600 cursor-not-allowed' : 'bg-green-600 hover:bg-green-700'}`}
                                 onClick={runCode}

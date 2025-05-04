@@ -4,8 +4,10 @@ const ACTIONS = {
   DISCONNECTED: 'disconnected',
   CODE_CHANGE: 'code-change',
   SYNC_CODE: 'sync-code',
+  CODE_SYNC: 'code-sync',
+  GET_CODE: 'get-code',
   LEAVE: 'leave',
-  LEAVE_ROOM: 'leave-room',
+  CODE_OUTPUT: 'code-output',
 };
 
-module.exports = ACTIONS;
+export default ACTIONS;
