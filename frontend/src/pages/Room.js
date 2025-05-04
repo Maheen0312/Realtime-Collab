@@ -67,71 +67,7 @@ const Room = () => {
     dropdownHover: darkMode ? "hover:bg-gray-700" : "hover:bg-gray-100",
   };
 
-  // Initialize socket connection
-  
-
-  useEffect(() => {
-      const init = async () => {
-          socketRef.current = await initSocket();
-          socketRef.current.on('connect_error', (err) => handleErrors(err));
-          socketRef.current.on('connect_failed', (err) => handleErrors(err));
-
-          function handleErrors(e) {
-              console.log('socket error', e);
-              toast.error('Socket connection failed, try again later.');
-              reactNavigator('/');
-          }
-
-          socketRef.current.emit(ACTIONS.JOIN, {
-              roomId,
-              username: location.state?.username,
-          });
-
-          // Listening for joined event
-          socketRef.current.on(
-              ACTIONS.JOINED,
-              ({ clients, username, socketId }) => {
-                  if (username !== location.state?.username) {
-                      toast.success(`${username} joined the room.`);
-                      console.log(`${username} joined`);
-                  }
-
-                  // Update the clients list with a unique list of clients using socketId
-                  const uniqueClients = clients.filter(
-                      (client, index, self) =>
-                          index === self.findIndex(c => c.username === client.username)
-                  );
-
-                  setClients(uniqueClients);
-                  // for syncing the code from the start
-                  socketRef.current.emit(ACTIONS.SYNC_CODE, {
-                      code: codeRef.current,
-                      socketId,
-                  });
-              });
-
-          // listening for disconnected
-          socketRef.current.on(ACTIONS.DISCONNECTED, ({ socketId, username }) => {
-              if (username) {
-                  toast.success(`${username} left the room`);
-                  setClients((prevClients) => {
-                      return prevClients.filter(client => client.socketId !== socketId);
-                  });
-              }
-          });
-      };
-
-      init();
-
-      // listener cleaning function
-      return () => {
-          if (socketRef.current) {
-              socketRef.current.disconnect();
-              socketRef.current.off(ACTIONS.JOINED);
-              socketRef.current.off(ACTIONS.DISCONNECTED);
-          }
-      }
-  }, [ location.state?.username, reactNavigator, roomId ]);
+  // Initialize socket connection 
   useEffect(() => {
     const init = async () => {
       setIsLoading(true);
@@ -159,7 +95,10 @@ const Room = () => {
           setIsLoading(false);
           toast.success(`Joined room: ${userData.roomname || roomId}`);
         });
-
+        socketRef.current.emit(ACTIONS.SYNC_CODE, {
+          code: codeRef.current,
+          socketId,
+      });
         newSocket.on('room-not-found', () => {
           console.error('Room not found');
           toast.error('Room not found');
