@@ -265,13 +265,23 @@ server.listen(PORT, () => {
 });
 
 // === Graceful Shutdown ===
-process.on("SIGTERM", () => {
+process.on("SIGTERM", async () => {
   console.log("SIGTERM received, shutting down gracefully");
-  server.close(() => {
-    console.log("Server closed");
-    mongoose.connection.close(false, () => {
-      console.log("MongoDB connection closed");
-      process.exit(0);
+
+  try {
+    await new Promise((resolve, reject) => {
+      server.close((err) => {
+        if (err) return reject(err);
+        resolve();
+      });
     });
-  });
+
+    console.log("Server closed");
+    await mongoose.connection.close();
+    console.log("MongoDB connection closed.");
+    process.exit(0);
+  } catch (err) {
+    console.error("Error during shutdown:", err);
+    process.exit(1);
+  }
 });
