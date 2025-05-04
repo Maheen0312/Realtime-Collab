@@ -65,6 +65,20 @@ function getAllConnectedClients(roomId) {
 }
 io.on("connection", (socket) => {
   console.log(`User connected: ${socket.id}`);
+  
+  socket.on("joinRoom", (roomId) => {
+    socket.join(roomId);
+    io.to(roomId).emit("userJoined", `${socket.id} has joined the room.`);
+  });
+
+  socket.on("leaveRoom", (roomId) => {
+    socket.leave(roomId);
+    io.to(roomId).emit("userLeft", `${socket.id} has left the room.`);
+  });
+
+  socket.on("disconnect", () => {
+    console.log(`User disconnected: ${socket.id}`);
+  });
    // for joining room
    socket.on(ACTIONS.JOIN, ({ roomId, username }) => {
     userSocketMap[ socket.id ] = username;
@@ -121,19 +135,7 @@ socket.on(ACTIONS.LEAVE_ROOM, ({ roomId, username }) => {
         delete userSocketMap[ leavingSocketId ];
     }
 });
-  socket.on("joinRoom", (roomId) => {
-    socket.join(roomId);
-    io.to(roomId).emit("userJoined", `${socket.id} has joined the room.`);
-  });
-
-  socket.on("leaveRoom", (roomId) => {
-    socket.leave(roomId);
-    io.to(roomId).emit("userLeft", `${socket.id} has left the room.`);
-  });
-
-  socket.on("disconnect", () => {
-    console.log(`User disconnected: ${socket.id}`);
-  });
+  
 });
 
 // === Room Save/Load APIs ===
