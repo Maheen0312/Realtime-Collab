@@ -6,7 +6,19 @@ const mongoose = require("mongoose");
 const { Server } = require("socket.io");
 const { spawn } = require("child_process");
 const { setupWSConnection } = require('y-websocket');
+const WebSocketServer = require('ws').Server;
+const wss = new WebSocketServer({ port: 1234 });
 
+wss.on('connection', (ws, req) => {
+  console.log('New connection');
+  ws.on('message', (message) => {
+      console.log('Received:', message);
+  });
+
+  ws.on('close', () => {
+      console.log('Connection closed');
+  });
+});
 const {
   setupSocketHandlers,
   setupRoomAPI,

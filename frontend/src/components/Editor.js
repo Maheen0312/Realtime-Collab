@@ -45,7 +45,16 @@ const CollaborativeEditor = ({ roomId }) => {
 
   useEffect(() => {
     const ydoc = new Y.Doc();
-    const provider = new WebsocketProvider('https://realtime-collab-backend-mysh.onrender.com', roomId, ydoc);
+    const provider = new WebsocketProvider('wss://realtime-collab-backend-mysh.onrender.com', roomId, ydoc);
+    provider.on('status', (event) => {
+      if (event.status === 'connected') {
+        console.log('WebSocket connected');
+      } else {
+        console.error('WebSocket connection failed', event);
+      }
+    });
+    
+
     const ytext = ydoc.getText('codemirror');
 
     const languageExtension = languageExtensions[language] || javascript;
