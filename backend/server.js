@@ -22,14 +22,13 @@ const roomModel = require("./src/models/Room");
 
 // === Initialize ===
 const app = express();
-const server = https.createServer(sslOptions, app);
 // Load SSL certificates (use your own in production)
 const sslOptions = {
   key: fs.readFileSync("path/to/your/ssl/key.pem"),
   cert: fs.readFileSync("path/to/your/ssl/cert.pem"),
   ca: fs.readFileSync("path/to/your/ssl/ca.pem")  // optional, if you have CA certificate
 };
-
+const server = https.createServer(sslOptions, app);
 // === WebSocket Server Setup (Yjs) ===
 const wsServer = new Server({
   cors: {
