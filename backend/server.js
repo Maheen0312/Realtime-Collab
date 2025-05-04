@@ -61,82 +61,99 @@ const getAllConnectedClients = (roomId) => {
     );
 };
 
-io.on('connection', (socket) => {
-  console.log('Socket connected:', socket.id);
+io.on("connection", (socket) => {
+  console.log(`Socket connected: ${socket.id}`);
 
+  socket.on("join-room", ({ roomId, user }) => {
+    socket.join(roomId);
+    console.log(`🟢 ${user.name} joined room ${roomId}`);
+  
+    // Emit back to the client to confirm join
+    socket.emit("room-joined", {
+      roomId,
+      user,
+    });
+  
+    // Optionally notify others in the room
+    socket.to(roomId).emit("user-joined", { // Fixed: userJoined -> user-joined
+      message: `${user.name} joined the room.`,
+      user,
+    });
+  });
+  
   // Handle user joining a room
   socket.on(ACTIONS.JOIN, ({ roomId, username }) => {
-      userSocketMap[socket.id] = username;
-      socket.join(roomId);
-      
-      // Notify all users in the room about the new connection
-      const clients = getAllConnectedClients(roomId);
-      clients.forEach(({ socketId }) => {
-          io.to(socketId).emit(ACTIONS.JOINED, {
-              clients,
-              username,
-              socketId: socket.id,
-          });
-      });
-  });
+    userSocketMap[socket.id] = username;
+    socket.join(roomId);
+    
+    // Notify all users in the room about the new connection
+    const clients = getAllConnectedClients(roomId);
+    clients.forEach(({ socketId }) => {
+        io.to(socketId).emit(ACTIONS.JOINED, {
+            clients,
+            username,
+            socketId: socket.id,
+        });
+    });
+});
 
-  // Handle code change event
-  socket.on(ACTIONS.CODE_CHANGE, ({ roomId, code }) => {
-      // Broadcast the code change to all users in the room except the sender
-      socket.to(roomId).emit(ACTIONS.CODE_CHANGE, { code });
-  });
+// Handle code change event
+socket.on(ACTIONS.CODE_CHANGE, ({ roomId, code }) => {
+    // Broadcast the code change to all users in the room except the sender
+    socket.to(roomId).emit(ACTIONS.CODE_CHANGE, { code });
+});
 
-  // Handle code synchronization request
-  socket.on(ACTIONS.GET_CODE, ({ roomId }) => {
-      // Broadcast request to all users in the room
-      socket.to(roomId).emit(ACTIONS.GET_CODE, { socketId: socket.id });
-  });
+// Handle code synchronization request
+socket.on(ACTIONS.GET_CODE, ({ roomId }) => {
+    // Broadcast request to all users in the room
+    socket.to(roomId).emit(ACTIONS.GET_CODE, { socketId: socket.id });
+});
 
-  // Send code to a specific user who requested it
-  socket.on(ACTIONS.CODE_SYNC, ({ code, socketId }) => {
-      io.to(socketId).emit(ACTIONS.CODE_CHANGE, { code });
-  });
+// Send code to a specific user who requested it
+socket.on(ACTIONS.CODE_SYNC, ({ code, socketId }) => {
+    io.to(socketId).emit(ACTIONS.CODE_CHANGE, { code });
+});
 
-  // Share code execution output
-  socket.on(ACTIONS.CODE_OUTPUT, ({ roomId, output }) => {
-      // Broadcast the output to all users in the room including the sender
-      io.in(roomId).emit(ACTIONS.CODE_OUTPUT, { output });
-  });
+// Share code execution output
+socket.on(ACTIONS.CODE_OUTPUT, ({ roomId, output }) => {
+    // Broadcast the output to all users in the room including the sender
+    io.in(roomId).emit(ACTIONS.CODE_OUTPUT, { output });
+});
 
-  // Handle user disconnection
-  const handleDisconnect = () => {
-      // Find all rooms this socket is a part of
-      const rooms = [...socket.rooms];
-      
-      rooms.forEach((roomId) => {
-          // Skip the default room (which is the socket ID)
-          if (roomId === socket.id) return;
-          
-          // Get the username before removing it
-          const username = userSocketMap[socket.id];
-          
-          // Remove user from the room
-          socket.leave(roomId);
-          
-          // Delete user from the socket map
-          delete userSocketMap[socket.id];
-          
-          // Notify remaining users about the disconnection
-          const clients = getAllConnectedClients(roomId);
-          clients.forEach(({ socketId }) => {
-              io.to(socketId).emit(ACTIONS.DISCONNECTED, {
-                  socketId: socket.id,
-                  username,
-              });
-          });
-      });
-  };
+// Handle user disconnection
+const handleDisconnect = () => {
+    // Find all rooms this socket is a part of
+    const rooms = [...socket.rooms];
+    
+    rooms.forEach((roomId) => {
+        // Skip the default room (which is the socket ID)
+        if (roomId === socket.id) return;
+        
+        // Get the username before removing it
+        const username = userSocketMap[socket.id];
+        
+        // Remove user from the room
+        socket.leave(roomId);
+        
+        // Delete user from the socket map
+        delete userSocketMap[socket.id];
+        
+        // Notify remaining users about the disconnection
+        const clients = getAllConnectedClients(roomId);
+        clients.forEach(({ socketId }) => {
+            io.to(socketId).emit(ACTIONS.DISCONNECTED, {
+                socketId: socket.id,
+                username,
+            });
+        });
+    });
+};
 
-  // Explicit leave event
-  socket.on(ACTIONS.LEAVE, handleDisconnect);
-  
-  // Automatic disconnect event
-  socket.on('disconnect', handleDisconnect);
+// Explicit leave event
+socket.on(ACTIONS.LEAVE, handleDisconnect);
+
+// Automatic disconnect event
+socket.on('disconnect', handleDisconnect);
 });
 
 // === Room API Routes ===
