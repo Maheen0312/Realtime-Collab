@@ -5,7 +5,7 @@ const cors = require("cors");
 const mongoose = require("mongoose");
 const { Server } = require("socket.io");
 const { spawn } = require("child_process");
-const ACTIONS = require('./actions'); // Fixed typo: action -> actions
+const ACTIONS = require('./action'); // Fixed typo: action -> actions
 
 // === Setup Express & HTTP Server ===
 const app = express();
