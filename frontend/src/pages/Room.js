@@ -654,7 +654,7 @@ const Room = () => {
             </div>
             
             {/* Text chat section */}
-            <div className="flex flex-col h-1/2 overflow-hidden">
+            <div className="flex flex-col overflow-hidden">
               <div className="flex-grow overflow-hidden">
                 <Chatbot darkMode={darkMode} />
               </div>
