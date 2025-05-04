@@ -139,6 +139,15 @@ socket.on(ACTIONS.LEAVE_ROOM, ({ roomId, username }) => {
 });
   
 });
+app.get("/api/check-room/:roomId", async (req, res) => {
+  const { roomId } = req.params;
+  const room = await roomModel.findOne({ roomId });
+  if (room) {
+    return res.status(200).json({ exists: true });
+  } else {
+    return res.status(404).json({ exists: false, error: "Room not found" });
+  }
+});
 
 // === Room Save/Load APIs ===
 app.post("/api/room/save", async (req, res) => {
