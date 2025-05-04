@@ -156,19 +156,18 @@ app.get("/api/check-room/:roomId", async (req, res) => {
   try {
     const { roomId } = req.params;
     const room = await roomModel.findOne({ roomId });
-    if (room) {
-      return res.status(200).json({ 
-        exists: true,
-        roomname: room.roomname || "" // Include roomname if exists
-      });
-    } else {
-      return res.status(404).json({ exists: false, error: "Room not found" });
+
+    if (!room) {
+      return res.status(404).json({ error: "Room not found" });
     }
+
+    res.status(200).json({ valid: true });
   } catch (err) {
-    console.error("Error checking room:", err);
-    return res.status(500).json({ error: "Failed to check room" });
+    console.error("Room check error:", err);
+    res.status(500).json({ error: "Internal server error" });
   }
 });
+
 
 // === Room Save/Load APIs ===
 app.post("/api/room/save", async (req, res) => {
