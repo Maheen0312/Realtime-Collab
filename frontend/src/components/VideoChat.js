@@ -294,7 +294,7 @@ const AgoraVideoChat = ({ roomId = CHANNEL, onError }) => {
           <div 
             ref={localVideoContainerRef} 
             className="w-full h-full"
-            style={{ aspectRatio: '16/9' }}
+            style={{ aspectRatio: '10/10' }}
           />
           {!videoEnabled && (
             <div className="absolute inset-0 flex items-center justify-center">

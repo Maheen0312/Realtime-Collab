@@ -634,9 +634,9 @@ const Room = () => {
 
         {/* Right sidebar - Video chat + text chat */}
         {!chatCollapsed && (
-          <div className={`flex flex-col w-1/4 ${theme.sidebar} border-l ${theme.border} transition-all duration-300`}>
+          <div className={`flex flex-col w-1/2 ${theme.sidebar} border-l ${theme.border} transition-all duration-300`}>
             {/* Video chat section */}
-            <div className="flex flex-col h-1/2 border-b border-gray-700 overflow-hidden">
+            <div className="flex flex-col h-full border-b border-gray-700 overflow-hidden">
               <div className={`p-3 border-b ${theme.border} flex justify-between items-center`}>
                 <h3 className="font-semibold">Video Chat</h3>
                 <button 
