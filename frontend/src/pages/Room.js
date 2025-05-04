@@ -136,9 +136,7 @@ const Room = () => {
             });
           }
         });
-        useEffect(() => {
-          console.log("Current clients:", clients);
-        }, [clients]);
+        
 
         // User disconnected event
         newSocket.on(ACTIONS.DISCONNECTED, ({ socketId, username }) => {

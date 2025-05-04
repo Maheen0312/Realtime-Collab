@@ -249,7 +249,7 @@ const AgoraVideoChat = ({ roomId = CHANNEL, onError }) => {
         key={user.uid} 
         className="bg-gray-800 rounded-lg overflow-hidden relative"
         style={{
-          aspectRatio: '5/5',
+          aspectRatio: '3/3',
         }}
       >
         <div 
@@ -294,7 +294,7 @@ const AgoraVideoChat = ({ roomId = CHANNEL, onError }) => {
           <div 
             ref={localVideoContainerRef} 
             className="w-full h-full"
-            style={{ aspectRatio: '5/5' }}
+            style={{ aspectRatio: '3/3' }}
           />
           {!videoEnabled && (
             <div className="absolute inset-0 flex items-center justify-center">
