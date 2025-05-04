@@ -1,12 +1,13 @@
 // server.js - main server file with improved structure
 require('dotenv').config();
 const express = require("express");
-const http = require("http");
+const https = require("https");
 const cors = require('cors');
 const mongoose = require("mongoose");
 const { Server } = require("socket.io");
 const { spawn } = require("child_process");
-
+const fs = require("fs");
+const { setupWSConnection } = require('y-websocket/bin/utils');
 // Import socket handlers and API setup
 const {
   setupSocketHandlers,
@@ -21,7 +22,26 @@ const roomModel = require("./src/models/Room");
 
 // === Initialize ===
 const app = express();
-const server = http.createServer(app);
+const server = https.createServer(sslOptions, app);
+// Load SSL certificates (use your own in production)
+const sslOptions = {
+  key: fs.readFileSync("path/to/your/ssl/key.pem"),
+  cert: fs.readFileSync("path/to/your/ssl/cert.pem"),
+  ca: fs.readFileSync("path/to/your/ssl/ca.pem")  // optional, if you have CA certificate
+};
+
+// === WebSocket Server Setup (Yjs) ===
+const wsServer = new Server({
+  cors: {
+    origin: process.env.FRONTEND_URL,
+    methods: ['GET', 'POST'],
+    credentials: true
+  }
+});
+
+wsServer.on('connection', (conn, req) => {
+  setupWSConnection(conn, req);  // Setup Yjs WebSocket Connection
+});
 
 // === Middlewares ===
 app.use(express.json());
