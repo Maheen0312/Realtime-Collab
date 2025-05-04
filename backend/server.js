@@ -5,7 +5,7 @@ const cors = require("cors");
 const mongoose = require("mongoose");
 const { Server } = require("socket.io");
 const { spawn } = require("child_process");
-const setupWSConnection = require("y-websocket").setupWSConnection;
+const { setupWSConnection } = require('y-websocket');
 
 const {
   setupSocketHandlers,
@@ -28,7 +28,7 @@ const wsServer = new Server({
     credentials: true,
   },
 });
-wsServer.on("connection", (conn, req) => {
+wsServer.on('connection', (conn, req) => {
   setupWSConnection(conn, req);
 });
 

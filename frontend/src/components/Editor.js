@@ -45,7 +45,7 @@ const CollaborativeEditor = ({ roomId }) => {
 
   useEffect(() => {
     const ydoc = new Y.Doc();
-    const provider = new WebsocketProvider('https://realtime-collab-backend-mysh.onrender.com:1234', roomId, ydoc);
+    const provider = new WebsocketProvider('https://realtime-collab-backend-mysh.onrender.com', roomId, ydoc);
     const ytext = ydoc.getText('codemirror');
 
     const languageExtension = languageExtensions[language] || javascript;
