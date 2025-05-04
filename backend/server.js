@@ -5,8 +5,10 @@ const cors = require("cors");
 const mongoose = require("mongoose");
 const { Server } = require("socket.io");
 const { spawn } = require("child_process");
-const { setupWSConnection } = require('y-websocket');
+const setupWSConnection = require('y-websocket/bin/utils.js').setupWSConnection; // ✅ fixed
 const WebSocket = require('ws');
+const { setupSocketHandlers } = require("./socket.handlers");
+const { setupRoomAPI, startRoomCleanupJob } = require("./socket.handlers");
 
 // === Setup Express & HTTP Server ===
 const app = express();
