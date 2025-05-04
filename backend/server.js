@@ -22,7 +22,10 @@ mongoose.connection.on("error", (err) => console.error("❌ MongoDB connection e
 
 // === Yjs WebSocket Server (Correct Setup) ===
 const yjsWSS = new WebSocket.Server({ server }); // Attach to HTTP server
-yjsWSS.on("connection", setupWSConnection);
+yjsWSS.on("connection", (conn, req) => {
+  setupWSConnection(conn, req);
+});
+
 
 // === Middleware ===
 app.use(express.json());
