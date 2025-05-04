@@ -227,6 +227,10 @@ const Room = () => {
       }
     };
   }, [roomId, userData.name, navigate]);
+  
+  useEffect(() => {
+    console.log("Current clients:", clients);
+  }, [clients]);
 
   // Initial authentication and room validation
   useEffect(() => {
