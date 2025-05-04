@@ -6,8 +6,9 @@ import Terminal from "../components/Terminal";
 import VideoChat from "../components/VideoChat";
 import Chatbot from "../components/Chatbot";
 import UserList from '../components/UserList';
+import CodeRunner from'../components/CodeRunner';
 import { useSocket } from '../socketContext';
-import { ACTIONS } from '../action';
+import ACTIONS from '../action';
 import toast from 'react-hot-toast';
 import { v4 as uuidV4 } from 'uuid';
 import { initSocket } from '../socket';
@@ -15,7 +16,6 @@ const API_BASE_URL = process.env.REACT_APP_API_URL || "http://localhost:5000";
 
 const Room = () => {
   const fileInputRef = useRef(null);
-  const editorRef = useRef(null);
   const navigate = useNavigate();
   const { roomId } = useParams();
   const location = useLocation();
@@ -28,6 +28,7 @@ const Room = () => {
   const socket = useSocket();  // Use socket from context
   const codeRef = useRef(null);
   const [clients, setClients] = useState([]);
+  const [code, setCode] = useState('');
   const [language, setLanguage] = useState('javascript');
   const socketRef = useRef(null);
 
@@ -67,7 +68,7 @@ const Room = () => {
     dropdownHover: darkMode ? "hover:bg-gray-700" : "hover:bg-gray-100",
   };
 
-  // Initialize socket connection - consolidated to avoid duplicate initialization
+  // Initialize socket connection
   useEffect(() => {
     const init = async () => {
       setIsLoading(true);
@@ -82,9 +83,6 @@ const Room = () => {
         // Clear any existing socket reference
         if (socketRef.current) {
           socketRef.current.disconnect();
-          socketRef.current.off(ACTIONS.JOINED);
-          socketRef.current.off(ACTIONS.DISCONNECTED);
-          socketRef.current.off(ACTIONS.CODE_CHANGE);
         }
 
         const newSocket = await initSocket();
@@ -151,6 +149,22 @@ const Room = () => {
           setLanguage(newLang);
         });
         
+        // Code change event to sync code between clients
+        newSocket.on(ACTIONS.CODE_CHANGE, ({ code }) => {
+          if (code !== null) {
+            setCode(code);
+            codeRef.current = code;
+          }
+        });
+        
+        // Sync code event handler
+        newSocket.on(ACTIONS.SYNC_CODE, ({ code }) => {
+          if (code !== null) {
+            setCode(code);
+            codeRef.current = code;
+          }
+        });
+        
         // Room joined confirmation
         newSocket.on('room-joined', () => {
           setIsRoomValid(true);
@@ -196,6 +210,7 @@ const Room = () => {
         socketRef.current.off(ACTIONS.DISCONNECTED);
         socketRef.current.off(ACTIONS.CODE_CHANGE);
         socketRef.current.off(ACTIONS.LANGUAGE_CHANGE);
+        socketRef.current.off(ACTIONS.SYNC_CODE);
         socketRef.current.off('room-joined');
         socketRef.current.off('room-not-found');
         socketRef.current.off('error');
@@ -287,6 +302,12 @@ const Room = () => {
     verifyRoomAndUser();
   }, [roomId, navigate, stateData, usernameFromUrl]);
 
+  // Code change handler
+  const handleCodeChange = (newCode) => {
+    setCode(newCode);
+    codeRef.current = newCode;
+  };
+
   // Handle participants updates with socket
   useEffect(() => {
     if (!socket || !isRoomValid) return;
@@ -337,23 +358,29 @@ const Room = () => {
     const reader = new FileReader();
     reader.onload = (e) => {
       const content = e.target.result;
-      if (editorRef.current?.setValue) {
-        editorRef.current.setValue(content);
-        showToast(`Loaded "${file.name}"`, "success");
+      setCode(content);
+      codeRef.current = content;
+      // Broadcast the code change
+      if (socketRef.current?.connected) {
+        socketRef.current.emit(ACTIONS.CODE_CHANGE, {
+          roomId,
+          code: content,
+        });
       }
+      showToast(`Loaded "${file.name}"`, "success");
     };
     reader.readAsText(file);
   };
 
   const handleMenuAction = (action) => {
     setActiveMenu(null);
-    if (action === "save" && editorRef.current?.getValue) {
-      const content = editorRef.current.getValue();
+    if (action === "save" && codeRef.current) {
+      const content = codeRef.current;
       const blob = new Blob([content], { type: "text/plain" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = "code.txt";
+      a.download = `code.${language === 'javascript' ? 'js' : language}`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -381,10 +408,12 @@ const Room = () => {
   const handleLanguageChange = (e) => {
     const newLanguage = e.target.value;
     setLanguage(newLanguage);
-    socketRef.current?.emit(ACTIONS.LANGUAGE_CHANGE, {
-      roomId,
-      language: newLanguage,
-    });
+    if (socketRef.current?.connected) {
+      socketRef.current.emit(ACTIONS.LANGUAGE_CHANGE, {
+        roomId,
+        language: newLanguage,
+      });
+    }
   };
   
   const copyRoomId = () => {
@@ -597,10 +626,8 @@ const Room = () => {
             <Editor
               socketRef={socketRef}
               roomId={roomId}
-              onCodeChange={(code) => { codeRef.current = code }}
+              onCodeChange={handleCodeChange}
               language={language}
-              darkMode={darkMode}
-              editorRef={editorRef}
             />
           </div>
         </div>
