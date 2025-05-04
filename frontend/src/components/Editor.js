@@ -42,6 +42,7 @@ const CollaborativeEditor = ({ roomId }) => {
   const viewRef = useRef();
   const [language, setLanguage] = useState('javascript');
   const [output, setOutput] = useState('');
+  const [error, setError] = useState('');
 
   useEffect(() => {
     const ydoc = new Y.Doc();
@@ -53,7 +54,6 @@ const CollaborativeEditor = ({ roomId }) => {
         console.error('WebSocket connection failed', event);
       }
     });
-    
 
     const ytext = ydoc.getText('codemirror');
 
@@ -98,21 +98,31 @@ const CollaborativeEditor = ({ roomId }) => {
     const code = viewRef.current.state.doc.toString();
     const langId = languageMap[language];
 
-    const response = await fetch('https://judge0-ce.p.rapidapi.com/submissions?base64_encoded=false&wait=true', {
-      method: 'POST',
-      headers: {
-        "content-type": "application/json",
+    try {
+      const response = await fetch('https://judge0-ce.p.rapidapi.com/submissions?base64_encoded=false&wait=true', {
+        method: 'POST',
+        headers: {
+          "content-type": "application/json",
           "X-RapidAPI-Key": "d6915d0f2emsha6752c36c811d2ep1adfbdjsna851c64946a5",
           "X-RapidAPI-Host": "judge0-ce.p.rapidapi.com",
-      },
-      body: JSON.stringify({
-        source_code: code,
-        language_id: langId
-      })
-    });
+        },
+        body: JSON.stringify({
+          source_code: code,
+          language_id: langId
+        })
+      });
 
-    const result = await response.json();
-    setOutput(result.stdout || result.stderr || 'No output');
+      if (!response.ok) {
+        throw new Error('Failed to execute code');
+      }
+
+      const result = await response.json();
+      setOutput(result.stdout || result.stderr || 'No output');
+      setError('');
+    } catch (error) {
+      setOutput('');
+      setError(`Error: ${error.message}`);
+    }
   };
 
   return (
@@ -129,6 +139,12 @@ const CollaborativeEditor = ({ roomId }) => {
         <button onClick={runCode}>Run Code</button>
       </div>
       <div ref={editorRef} style={{ height: '400px', width: '100%', border: '1px solid #ccc', borderRadius: '5px' }} />
+      {error && (
+        <div style={{ marginTop: '10px', background: '#f8d7da', color: '#721c24', padding: '10px', borderRadius: '5px' }}>
+          <strong>Error:</strong>
+          <div>{error}</div>
+        </div>
+      )}
       <div style={{ marginTop: '10px', background: '#1e1e1e', color: '#dcdcdc', padding: '10px', borderRadius: '5px', whiteSpace: 'pre-wrap' }}>
         <strong>Output:</strong>
         <div>{output}</div>

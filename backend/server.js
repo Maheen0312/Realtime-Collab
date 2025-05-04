@@ -5,9 +5,8 @@ const cors = require("cors");
 const mongoose = require("mongoose");
 const { Server } = require("socket.io");
 const { spawn } = require("child_process");
-const setupWSConnection = require('y-websocket').setupWSConnection; // ✅ fixed
-const WebSocket = require('ws');
-
+const WebSocket = require("ws");
+const { setupWSConnection } = require("y-websocket");
 
 // === Setup Express & HTTP Server ===
 const app = express();
@@ -22,11 +21,19 @@ mongoose.connection.on("connected", () => console.log("✅ MongoDB connected suc
 mongoose.connection.on("error", (err) => console.error("❌ MongoDB connection error:", err));
 
 // === Yjs WebSocket Server (Correct Setup) ===
-const yjsWSS = new WebSocket.Server({ server }); // Attach to HTTP server
+const yjsWSS = new WebSocket.Server({ server });
 yjsWSS.on("connection", (conn, req) => {
   setupWSConnection(conn, req);
+  console.log(`New connection from ${req.conn.remoteAddress}`);
 });
 
+yjsWSS.on("close", () => {
+  console.log("WebSocket server closed");
+});
+
+yjsWSS.on("error", (err) => {
+  console.error("WebSocket error:", err);
+});
 
 // === Middleware ===
 app.use(express.json());
@@ -37,16 +44,13 @@ const corsOptions = {
     else callback(new Error("Not allowed by CORS"));
   },
   credentials: true,
-  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
 };
 app.use(cors(corsOptions));
-app.options("*", cors(corsOptions));
 
 // === Routes ===
+const roomModel = require("./src/models/Room");
 const authRoutes = require("./src/routes/auth");
 const protectedRoutes = require("./auth/protected.routes");
-const roomModel = require("./src/models/Room");
 
 app.use("/api/auth", authRoutes);
 app.use("/api", protectedRoutes);
@@ -58,55 +62,24 @@ const io = new Server(server, {
     methods: ["GET", "POST"],
     credentials: true,
   },
-  pingTimeout: 60000,
-  pingInterval: 25000,
 });
-const {
-  setupSocketHandlers,
-  setupRoomAPI,
-  startRoomCleanupJob,
-} = require("./socket.handlers");
-setupSocketHandlers(io);
-setupRoomAPI(app);
-startRoomCleanupJob();
 
-// === AI Chatbot Route ===
-app.post("/api/chatbot", async (req, res) => {
-  const { message } = req.body;
-  if (!message) return res.status(400).json({ error: "Message is required" });
+io.on("connection", (socket) => {
+  console.log(`User connected: ${socket.id}`);
+  
+  socket.on("joinRoom", (roomId) => {
+    socket.join(roomId);
+    io.to(roomId).emit("userJoined", `${socket.id} has joined the room.`);
+  });
 
-  try {
-    const ollama = spawn("ollama", ["run", "phi"]);
-    const prompt = `You are a helpful assistant. Give a short and working code snippet in JavaScript for: ${message}`;
-    let response = "", responded = false;
+  socket.on("leaveRoom", (roomId) => {
+    socket.leave(roomId);
+    io.to(roomId).emit("userLeft", `${socket.id} has left the room.`);
+  });
 
-    const safeSend = (data) => {
-      if (!responded) {
-        res.status(200).json({ response: data });
-        responded = true;
-      }
-    };
-
-    ollama.stdout.on("data", data => response += data.toString());
-    ollama.on("close", () => safeSend(response));
-    ollama.on("error", err => {
-      console.error("Ollama error:", err);
-      if (!responded) res.status(500).json({ error: "AI service unavailable" });
-    });
-
-    setTimeout(() => {
-      if (!responded) {
-        ollama.kill();
-        res.status(504).json({ error: "AI request timed out" });
-      }
-    }, 15000);
-
-    ollama.stdin.write(prompt);
-    ollama.stdin.end();
-  } catch (err) {
-    console.error("Chatbot error:", err);
-    res.status(500).json({ error: "Something went wrong with the AI request" });
-  }
+  socket.on("disconnect", () => {
+    console.log(`User disconnected: ${socket.id}`);
+  });
 });
 
 // === Room Save/Load APIs ===
@@ -143,7 +116,7 @@ app.get("/api/room/load/:roomId", async (req, res) => {
   try {
     const { roomId } = req.params;
     const room = await roomModel.findOne({ roomId });
-    if (!room) return res.status(404).json({ error: "Room not found" });
+    if (!room) return res.status(404).json({ error: `Room with ID ${roomId} not found` });
 
     res.status(200).json({
       roomId: room.roomId,
@@ -154,6 +127,46 @@ app.get("/api/room/load/:roomId", async (req, res) => {
   } catch (err) {
     console.error("Error loading room:", err);
     res.status(500).json({ error: "Failed to load room state" });
+  }
+});
+
+// === AI Chatbot Route ===
+app.post("/api/chatbot", async (req, res) => {
+  const { message } = req.body;
+  if (!message) return res.status(400).json({ error: "Message is required" });
+
+  try {
+    const ollama = spawn("ollama", ["run", "phi"]);
+    const prompt = `You are a helpful assistant. Give a short and working code snippet in JavaScript for: ${message}`;
+    let response = "", responded = false;
+
+    const safeSend = (data) => {
+      if (!responded) {
+        res.status(200).json({ response: data });
+        responded = true;
+      }
+    };
+
+    ollama.stdout.on("data", data => response += data.toString());
+    ollama.on("close", () => safeSend(response));
+    ollama.on("error", err => {
+      console.error("Ollama error:", err);
+      if (!responded) res.status(500).json({ error: "AI service unavailable" });
+    });
+
+    // Timeout in case the AI takes too long
+    setTimeout(() => {
+      if (!responded) {
+        ollama.kill();
+        res.status(504).json({ error: "AI request timed out" });
+      }
+    }, 15000); // 15 seconds timeout
+
+    ollama.stdin.write(prompt);
+    ollama.stdin.end();
+  } catch (err) {
+    console.error("Chatbot error:", err);
+    res.status(500).json({ error: "Something went wrong with the AI request" });
   }
 });
 
@@ -177,9 +190,12 @@ process.on("SIGTERM", () => {
   console.log("SIGTERM received, shutting down gracefully");
   server.close(() => {
     console.log("Server closed");
-    mongoose.connection.close(false, () => {
-      console.log("MongoDB connection closed");
-      process.exit(0);
+    yjsWSS.close(() => {
+      console.log("WebSocket server closed");
+      mongoose.connection.close(false, () => {
+        console.log("MongoDB connection closed");
+        process.exit(0);
+      });
     });
   });
 });
