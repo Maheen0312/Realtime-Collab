@@ -5,7 +5,7 @@ const cors = require("cors");
 const mongoose = require("mongoose");
 const { Server } = require("socket.io");
 const { spawn } = require("child_process");
-const ACTIONS = require('./action');
+const ACTIONS = require('./actions'); // Fixed typo: action -> actions
 
 // === Setup Express & HTTP Server ===
 const app = express();
@@ -20,27 +20,23 @@ mongoose.connection.on("connected", () => console.log("✅ MongoDB connected suc
 mongoose.connection.on("error", (err) => console.error("❌ MongoDB connection error:", err));
 
 // === Middleware ===
+// Remove duplicate cors configuration
 app.use(cors({
-  origin: process.env.FRONTEND_URL,
-  credentials: true,
-  methods: ['GET', 'POST'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-}));
-app.use(express.json());
-const corsOptions = {
   origin: function (origin, callback) {
     const allowed = ["http://localhost:3000", process.env.FRONTEND_URL].filter(Boolean);
     if (!origin || allowed.includes(origin)) callback(null, true);
     else callback(new Error("Not allowed by CORS"));
   },
   credentials: true,
-};
-app.use(cors(corsOptions));
+  methods: ['GET', 'POST'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+}));
+app.use(express.json());
 
 // === Routes ===
 const roomModel = require("./src/models/Room");
 const authRoutes = require("./src/routes/auth");
-const protectedRoutes = require("./auth/protected.routes");
+const protectedRoutes = require("./src/routes/protected.routes"); // Fixed path
 
 app.use("/api/auth", authRoutes);
 app.use("/api", protectedRoutes);
@@ -59,11 +55,14 @@ function getAllConnectedClients(roomId) {
     return Array.from(io.sockets.adapter.rooms.get(roomId) || []).map((socketId) => {
         return {
             socketId,
-            username: userSocketMap[ socketId ]
+            username: userSocketMap[socketId]
         };
     });
 }
+
 io.on("connection", (socket) => {
+  console.log(`Socket connected: ${socket.id}`);
+
   socket.on("join-room", ({ roomId, user }) => {
     socket.join(roomId);
     console.log(`🟢 ${user.name} joined room ${roomId}`);
@@ -75,19 +74,20 @@ io.on("connection", (socket) => {
     });
   
     // Optionally notify others in the room
-    socket.to(roomId).emit("userJoined", {
+    socket.to(roomId).emit("user-joined", { // Fixed: userJoined -> user-joined
       message: `${user.name} joined the room.`,
       user,
     });
   });
   
-   // for joining room
-   socket.on(ACTIONS.JOIN, ({ roomId, username }) => {
-    userSocketMap[ socket.id ] = username;
+  // for joining room
+  socket.on(ACTIONS.JOIN, ({ roomId, username }) => {
+    userSocketMap[socket.id] = username;
     socket.join(roomId);
 
     const clients = getAllConnectedClients(roomId);
 
+    // Always check if clients is an array before proceeding
     if (Array.isArray(clients)) {
         clients.forEach(({ socketId }) => {
             io.to(socketId).emit(ACTIONS.JOINED, {
@@ -99,66 +99,87 @@ io.on("connection", (socket) => {
     } else {
         console.log('Clients data is not an array:', clients);
     }
-});
+  });
 
-// for sync
-socket.on(ACTIONS.CODE_CHANGE, ({ roomId, code }) => {
+  // for sync
+  socket.on(ACTIONS.CODE_CHANGE, ({ roomId, code }) => {
     socket.in(roomId).emit(ACTIONS.CODE_CHANGE, { code });
-});
+  });
 
-socket.on(ACTIONS.SYNC_CODE, ({ socketId, code }) => {
+  socket.on(ACTIONS.SYNC_CODE, ({ socketId, code }) => {
     io.to(socketId).emit(ACTIONS.CODE_CHANGE, { code });
-});
+  });
 
-// disconnecting from socket
-socket.on('disconnecting', () => {
-    const rooms = [ ...socket.rooms ];
+  // Language change handler
+  socket.on(ACTIONS.LANGUAGE_CHANGE, ({ roomId, language }) => {
+    socket.in(roomId).emit(ACTIONS.LANGUAGE_CHANGE, { language });
+  });
+
+  // disconnecting from socket
+  socket.on('disconnecting', () => {
+    const rooms = [...socket.rooms];
     rooms.forEach((roomId) => {
-        socket.in(roomId).emit(ACTIONS.DISCONNECTED, {
-            socketId: socket.id,
-            username: userSocketMap[ socket.id ]
-        });
+      socket.in(roomId).emit(ACTIONS.DISCONNECTED, {
+          socketId: socket.id,
+          username: userSocketMap[socket.id]
+      });
     });
-    delete userSocketMap[ socket.id ];
+    delete userSocketMap[socket.id];
     socket.leave();
-});
+  });
 
-socket.on(ACTIONS.LEAVE_ROOM, ({ roomId, username }) => {
-    const leavingSocketId = Object.keys(userSocketMap).find(key => userSocketMap[ key ] === username);
+  socket.on(ACTIONS.LEAVE_ROOM, ({ roomId, username }) => {
+    const leavingSocketId = Object.keys(userSocketMap).find(key => userSocketMap[key] === username);
 
     if (leavingSocketId) {
-        // Emit a custom event to notify other clients that the user left
-        socket.to(roomId).emit(ACTIONS.DISCONNECTED, {
-            socketId: leavingSocketId,
-            username: userSocketMap[ leavingSocketId ],
-        });
+      // Emit a custom event to notify other clients that the user left
+      socket.to(roomId).emit(ACTIONS.DISCONNECTED, {
+          socketId: leavingSocketId,
+          username: userSocketMap[leavingSocketId],
+      });
 
-        // Remove the user from the userSocketMap
-        delete userSocketMap[ leavingSocketId ];
+      // Remove the user from the userSocketMap
+      delete userSocketMap[leavingSocketId];
     }
-});
+  });
   
+  // Handle socket disconnection
+  socket.on('disconnect', () => {
+    console.log(`Socket disconnected: ${socket.id}`);
+    delete userSocketMap[socket.id];
+  });
 });
+
+// === Room API Routes ===
 app.get("/api/check-room/:roomId", async (req, res) => {
-  const { roomId } = req.params;
-  const room = await roomModel.findOne({ roomId });
-  if (room) {
-    return res.status(200).json({ exists: true });
-  } else {
-    return res.status(404).json({ exists: false, error: "Room not found" });
+  try {
+    const { roomId } = req.params;
+    const room = await roomModel.findOne({ roomId });
+    if (room) {
+      return res.status(200).json({ 
+        exists: true,
+        roomname: room.roomname || "" // Include roomname if exists
+      });
+    } else {
+      return res.status(404).json({ exists: false, error: "Room not found" });
+    }
+  } catch (err) {
+    console.error("Error checking room:", err);
+    return res.status(500).json({ error: "Failed to check room" });
   }
 });
 
 // === Room Save/Load APIs ===
 app.post("/api/room/save", async (req, res) => {
   try {
-    const { roomId, code, language, owner } = req.body;
+    const { roomId, code, language, owner, roomname } = req.body;
     if (!roomId) return res.status(400).json({ error: "Room ID is required" });
 
     let room = await roomModel.findOne({ roomId });
     if (room) {
       room.code = code || room.code;
       room.language = language || room.language;
+      room.roomname = roomname || room.roomname;
       room.lastUpdated = new Date();
     } else {
       room = new roomModel({
@@ -166,6 +187,7 @@ app.post("/api/room/save", async (req, res) => {
         code: code || "",
         language: language || "javascript",
         owner: owner || "anonymous",
+        roomname: roomname || "",
         created: new Date(),
         lastUpdated: new Date(),
       });
@@ -189,6 +211,7 @@ app.get("/api/room/load/:roomId", async (req, res) => {
       roomId: room.roomId,
       code: room.code,
       language: room.language,
+      roomname: room.roomname || "",
       lastUpdated: room.lastUpdated,
     });
   } catch (err) {
@@ -257,12 +280,9 @@ process.on("SIGTERM", () => {
   console.log("SIGTERM received, shutting down gracefully");
   server.close(() => {
     console.log("Server closed");
-    yjsWSS.close(() => {
-      console.log("WebSocket server closed");
-      mongoose.connection.close(false, () => {
-        console.log("MongoDB connection closed");
-        process.exit(0);
-      });
+    mongoose.connection.close(false, () => {
+      console.log("MongoDB connection closed");
+      process.exit(0);
     });
   });
 });
