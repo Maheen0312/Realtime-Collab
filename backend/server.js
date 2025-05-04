@@ -1,48 +1,38 @@
-// server.js - main server file with improved structure
 require('dotenv').config();
 const express = require("express");
-const https = require("https");
-const cors = require('cors');
+const http = require("http");
+const cors = require("cors");
 const mongoose = require("mongoose");
 const { Server } = require("socket.io");
 const { spawn } = require("child_process");
-const fs = require("fs");
-const setupWSConnection = require('y-websocket').setupWSConnection; // ✅ IF it's officially exported
-// Import socket handlers and API setup
+const setupWSConnection = require("y-websocket").setupWSConnection;
+
 const {
   setupSocketHandlers,
   setupRoomAPI,
-  startRoomCleanupJob
-} = require('./socket.handlers');
+  startRoomCleanupJob,
+} = require("./socket.handlers");
 
-// Route imports
-const authRoutes = require('./src/routes/auth');
+const authRoutes = require("./src/routes/auth");
 const protectedRoutes = require("./auth/protected.routes");
 const roomModel = require("./src/models/Room");
 
-// === Initialize ===
 const app = express();
-// Load SSL certificates (use your own in production)
-const sslOptions = {
-  key: fs.readFileSync("path/to/your/ssl/key.pem"),
-  cert: fs.readFileSync("path/to/your/ssl/cert.pem"),
-  ca: fs.readFileSync("path/to/your/ssl/ca.pem")  // optional, if you have CA certificate
-};
-const server = https.createServer(sslOptions, app);
+const server = http.createServer(app); // ✅ Use http for Render
+
 // === WebSocket Server Setup (Yjs) ===
 const wsServer = new Server({
   cors: {
     origin: process.env.FRONTEND_URL,
-    methods: ['GET', 'POST'],
-    credentials: true
-  }
+    methods: ["GET", "POST"],
+    credentials: true,
+  },
+});
+wsServer.on("connection", (conn, req) => {
+  setupWSConnection(conn, req);
 });
 
-wsServer.on('connection', (conn, req) => {
-  setupWSConnection(conn, req);  // Setup Yjs WebSocket Connection
-});
-
-// === Middlewares ===
+// === Middleware ===
 app.use(express.json());
 
 const corsOptions = {
@@ -51,27 +41,21 @@ const corsOptions = {
     if (!origin || allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
-      callback(new Error('Not allowed by CORS'));
+      callback(new Error("Not allowed by CORS"));
     }
   },
   credentials: true,
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"]
+  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
 };
-
-app.use(cors({
-  origin: process.env.FRONTEND_URL,
-  credentials: true
-}));
-
-app.options('*', cors(corsOptions));
+app.use(cors(corsOptions));
+app.options("*", cors(corsOptions));
 
 // === MongoDB Connection ===
 mongoose.connect(process.env.MONGO_URI_USERS || "mongodb://localhost:27017/codeauth", {
   useNewUrlParser: true,
   useUnifiedTopology: true,
 });
-
 mongoose.connection.on("connected", () => console.log("✅ MongoDB connected successfully"));
 mongoose.connection.on("error", (err) => console.error("❌ MongoDB connection error:", err));
 
@@ -83,24 +67,17 @@ app.use("/api", protectedRoutes);
 const io = new Server(server, {
   cors: {
     origin: process.env.FRONTEND_URL,
-    methods: ['GET', 'POST'],
-    credentials: true
+    methods: ["GET", "POST"],
+    credentials: true,
   },
-  // Socket.IO configuration for better connection handling
   pingTimeout: 60000,
-  pingInterval: 25000
+  pingInterval: 25000,
 });
-
-// Setup socket handlers
 setupSocketHandlers(io);
-
-// Setup room-related API endpoints
 setupRoomAPI(app);
-
-// Start the room cleanup job
 startRoomCleanupJob();
 
-// === AI Chatbot Endpoint ===
+// === AI Chatbot ===
 app.post("/api/chatbot", async (req, res) => {
   const { message } = req.body;
   if (!message) return res.status(400).json({ error: "Message is required" });
@@ -117,7 +94,7 @@ app.post("/api/chatbot", async (req, res) => {
       responded = true;
     };
 
-    ollama.stdout.on('data', (data) => {
+    ollama.stdout.on("data", (data) => {
       response += data.toString();
     });
 
@@ -130,7 +107,6 @@ app.post("/api/chatbot", async (req, res) => {
       }
     });
 
-    // Add timeout to prevent hanging requests
     setTimeout(() => {
       if (!responded) {
         ollama.kill();
@@ -147,35 +123,28 @@ app.post("/api/chatbot", async (req, res) => {
   }
 });
 
-// MongoDB persistence for rooms (optional functionality)
+// === Room Save and Load Endpoints ===
 app.post("/api/room/save", async (req, res) => {
   try {
     const { roomId, code, language, owner } = req.body;
-    
-    if (!roomId) {
-      return res.status(400).json({ error: "Room ID is required" });
-    }
-    
-    // Find room or create if it doesn't exist
+    if (!roomId) return res.status(400).json({ error: "Room ID is required" });
+
     let room = await roomModel.findOne({ roomId });
-    
     if (room) {
-      // Update existing room
       room.code = code || room.code;
       room.language = language || room.language;
       room.lastUpdated = new Date();
     } else {
-      // Create new room
       room = new roomModel({
         roomId,
         code: code || "",
         language: language || "javascript",
         owner: owner || "anonymous",
         created: new Date(),
-        lastUpdated: new Date()
+        lastUpdated: new Date(),
       });
     }
-    
+
     await room.save();
     res.status(200).json({ success: true, roomId: room.roomId });
   } catch (err) {
@@ -184,21 +153,18 @@ app.post("/api/room/save", async (req, res) => {
   }
 });
 
-// Retrieve room from database
 app.get("/api/room/load/:roomId", async (req, res) => {
   try {
     const { roomId } = req.params;
     const room = await roomModel.findOne({ roomId });
-    
-    if (!room) {
-      return res.status(404).json({ error: "Room not found" });
-    }
-    
+
+    if (!room) return res.status(404).json({ error: "Room not found" });
+
     res.status(200).json({
       roomId: room.roomId,
       code: room.code,
       language: room.language,
-      lastUpdated: room.lastUpdated
+      lastUpdated: room.lastUpdated,
     });
   } catch (err) {
     console.error("Error loading room:", err);
@@ -206,28 +172,28 @@ app.get("/api/room/load/:roomId", async (req, res) => {
   }
 });
 
-// === Health check endpoint ===
+// === Health Check ===
 app.get("/health", (req, res) => {
-  res.status(200).json({ 
+  res.status(200).json({
     status: "ok",
     mongoConnection: mongoose.connection.readyState === 1,
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
   });
 });
 
-// === Start the server ===
+// === Start the Server ===
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => {
   console.log(`🚀 Server is running on http://localhost:${PORT}`);
 });
 
-// Graceful shutdown
-process.on('SIGTERM', () => {
-  console.log('SIGTERM received, shutting down gracefully');
+// === Graceful Shutdown ===
+process.on("SIGTERM", () => {
+  console.log("SIGTERM received, shutting down gracefully");
   server.close(() => {
-    console.log('Server closed');
+    console.log("Server closed");
     mongoose.connection.close(false, () => {
-      console.log('MongoDB connection closed');
+      console.log("MongoDB connection closed");
       process.exit(0);
     });
   });
