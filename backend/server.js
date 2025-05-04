@@ -81,79 +81,74 @@ io.on("connection", (socket) => {
     });
   });
   
-  // Handle user joining a room
+  // for joining room
   socket.on(ACTIONS.JOIN, ({ roomId, username }) => {
     userSocketMap[socket.id] = username;
     socket.join(roomId);
-    
-    // Notify all users in the room about the new connection
+
     const clients = getAllConnectedClients(roomId);
-    clients.forEach(({ socketId }) => {
-        io.to(socketId).emit(ACTIONS.JOINED, {
-            clients,
-            username,
-            socketId: socket.id,
-        });
-    });
-});
 
-// Handle code change event
-socket.on(ACTIONS.CODE_CHANGE, ({ roomId, code }) => {
-    // Broadcast the code change to all users in the room except the sender
-    socket.to(roomId).emit(ACTIONS.CODE_CHANGE, { code });
-});
-
-// Handle code synchronization request
-socket.on(ACTIONS.GET_CODE, ({ roomId }) => {
-    // Broadcast request to all users in the room
-    socket.to(roomId).emit(ACTIONS.GET_CODE, { socketId: socket.id });
-});
-
-// Send code to a specific user who requested it
-socket.on(ACTIONS.CODE_SYNC, ({ code, socketId }) => {
-    io.to(socketId).emit(ACTIONS.CODE_CHANGE, { code });
-});
-
-// Share code execution output
-socket.on(ACTIONS.CODE_OUTPUT, ({ roomId, output }) => {
-    // Broadcast the output to all users in the room including the sender
-    io.in(roomId).emit(ACTIONS.CODE_OUTPUT, { output });
-});
-
-// Handle user disconnection
-const handleDisconnect = () => {
-    // Find all rooms this socket is a part of
-    const rooms = [...socket.rooms];
-    
-    rooms.forEach((roomId) => {
-        // Skip the default room (which is the socket ID)
-        if (roomId === socket.id) return;
-        
-        // Get the username before removing it
-        const username = userSocketMap[socket.id];
-        
-        // Remove user from the room
-        socket.leave(roomId);
-        
-        // Delete user from the socket map
-        delete userSocketMap[socket.id];
-        
-        // Notify remaining users about the disconnection
-        const clients = getAllConnectedClients(roomId);
+    // Always check if clients is an array before proceeding
+    if (Array.isArray(clients)) {
         clients.forEach(({ socketId }) => {
-            io.to(socketId).emit(ACTIONS.DISCONNECTED, {
-                socketId: socket.id,
+            io.to(socketId).emit(ACTIONS.JOINED, {
+                clients,
                 username,
+                socketId: socket.id,
             });
         });
+    } else {
+        console.log('Clients data is not an array:', clients);
+    }
+  });
+
+  // for sync
+  socket.on(ACTIONS.CODE_CHANGE, ({ roomId, code }) => {
+    io.in(roomId).emit(ACTIONS.CODE_CHANGE, { code });
+  });
+
+  socket.on(ACTIONS.SYNC_CODE, ({ socketId, code }) => {
+    io.to(socketId).emit(ACTIONS.CODE_CHANGE, { code });
+  });
+
+  // Language change handler
+  socket.on(ACTIONS.LANGUAGE_CHANGE, ({ roomId, language }) => {
+    io.in(roomId).emit(ACTIONS.LANGUAGE_CHANGE, { language });
+  });
+
+  // disconnecting from socket
+  socket.on('disconnecting', () => {
+    const rooms = [...socket.rooms];
+    rooms.forEach((roomId) => {
+      socket.in(roomId).emit(ACTIONS.DISCONNECTED, {
+          socketId: socket.id,
+          username: userSocketMap[socket.id]
+      });
     });
-};
+    delete userSocketMap[socket.id];
+    socket.leave();
+  });
 
-// Explicit leave event
-socket.on(ACTIONS.LEAVE, handleDisconnect);
+  socket.on(ACTIONS.LEAVE_ROOM, ({ roomId, username }) => {
+    const leavingSocketId = Object.keys(userSocketMap).find(key => userSocketMap[key] === username);
 
-// Automatic disconnect event
-socket.on('disconnect', handleDisconnect);
+    if (leavingSocketId) {
+      // Emit a custom event to notify other clients that the user left
+      socket.to(roomId).emit(ACTIONS.DISCONNECTED, {
+          socketId: leavingSocketId,
+          username: userSocketMap[leavingSocketId],
+      });
+
+      // Remove the user from the userSocketMap
+      delete userSocketMap[leavingSocketId];
+    }
+  });
+  
+  // Handle socket disconnection
+  socket.on('disconnect', () => {
+    console.log(`Socket disconnected: ${socket.id}`);
+    delete userSocketMap[socket.id];
+  });
 });
 
 // === Room API Routes ===
@@ -282,23 +277,13 @@ server.listen(PORT, () => {
 });
 
 // === Graceful Shutdown ===
-process.on("SIGTERM", async () => {
+process.on("SIGTERM", () => {
   console.log("SIGTERM received, shutting down gracefully");
-
-  try {
-    await new Promise((resolve, reject) => {
-      server.close((err) => {
-        if (err) return reject(err);
-        resolve();
-      });
-    });
-
+  server.close(() => {
     console.log("Server closed");
-    await mongoose.connection.close();
-    console.log("MongoDB connection closed.");
-    process.exit(0);
-  } catch (err) {
-    console.error("Error during shutdown:", err);
-    process.exit(1);
-  }
+    mongoose.connection.close(false, () => {
+      console.log("MongoDB connection closed");
+      process.exit(0);
+    });
+  });
 });
