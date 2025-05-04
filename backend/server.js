@@ -36,6 +36,12 @@ yjsWSS.on("error", (err) => {
 });
 
 // === Middleware ===
+app.use(cors({
+  origin: process.env.FRONTEND_URL,
+  credentials: true,
+  methods: ['GET', 'POST'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+}));
 app.use(express.json());
 const corsOptions = {
   origin: function (origin, callback) {
