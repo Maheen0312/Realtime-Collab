@@ -6,55 +6,31 @@ const mongoose = require("mongoose");
 const { Server } = require("socket.io");
 const { spawn } = require("child_process");
 const { setupWSConnection } = require('y-websocket');
-const WebSocketServer = require('ws').Server;
-const wss = new WebSocketServer({ port: 1234 });
+const WebSocket = require('ws');
 
-wss.on('connection', (ws, req) => {
-  console.log('New connection');
-  ws.on('message', (message) => {
-      console.log('Received:', message);
-  });
-
-  ws.on('close', () => {
-      console.log('Connection closed');
-  });
-});
-const {
-  setupSocketHandlers,
-  setupRoomAPI,
-  startRoomCleanupJob,
-} = require("./socket.handlers");
-
-const authRoutes = require("./src/routes/auth");
-const protectedRoutes = require("./auth/protected.routes");
-const roomModel = require("./src/models/Room");
-
+// === Setup Express & HTTP Server ===
 const app = express();
-const server = http.createServer(app); // ✅ Use http for Render
+const server = http.createServer(app); // For WebSocket and Express
 
-// === WebSocket Server Setup (Yjs) ===
-const wsServer = new Server({
-  cors: {
-    origin: process.env.FRONTEND_URL,
-    methods: ["GET", "POST"],
-    credentials: true,
-  },
+// === MongoDB Setup ===
+mongoose.connect(process.env.MONGO_URI_USERS || "mongodb://localhost:27017/codeauth", {
+  useNewUrlParser: true,
+  useUnifiedTopology: true,
 });
-wsServer.on('connection', (conn, req) => {
-  setupWSConnection(conn, req);
-});
+mongoose.connection.on("connected", () => console.log("✅ MongoDB connected successfully"));
+mongoose.connection.on("error", (err) => console.error("❌ MongoDB connection error:", err));
+
+// === Yjs WebSocket Server (Correct Setup) ===
+const yjsWSS = new WebSocket.Server({ server }); // Attach to HTTP server
+yjsWSS.on("connection", setupWSConnection);
 
 // === Middleware ===
 app.use(express.json());
-
 const corsOptions = {
   origin: function (origin, callback) {
-    const allowedOrigins = ["http://localhost:3000", process.env.FRONTEND_URL].filter(Boolean);
-    if (!origin || allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      callback(new Error("Not allowed by CORS"));
-    }
+    const allowed = ["http://localhost:3000", process.env.FRONTEND_URL].filter(Boolean);
+    if (!origin || allowed.includes(origin)) callback(null, true);
+    else callback(new Error("Not allowed by CORS"));
   },
   credentials: true,
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
@@ -63,15 +39,11 @@ const corsOptions = {
 app.use(cors(corsOptions));
 app.options("*", cors(corsOptions));
 
-// === MongoDB Connection ===
-mongoose.connect(process.env.MONGO_URI_USERS || "mongodb://localhost:27017/codeauth", {
-  useNewUrlParser: true,
-  useUnifiedTopology: true,
-});
-mongoose.connection.on("connected", () => console.log("✅ MongoDB connected successfully"));
-mongoose.connection.on("error", (err) => console.error("❌ MongoDB connection error:", err));
-
 // === Routes ===
+const authRoutes = require("./src/routes/auth");
+const protectedRoutes = require("./auth/protected.routes");
+const roomModel = require("./src/models/Room");
+
 app.use("/api/auth", authRoutes);
 app.use("/api", protectedRoutes);
 
@@ -85,11 +57,16 @@ const io = new Server(server, {
   pingTimeout: 60000,
   pingInterval: 25000,
 });
+const {
+  setupSocketHandlers,
+  setupRoomAPI,
+  startRoomCleanupJob,
+} = require("./socket.handlers");
 setupSocketHandlers(io);
 setupRoomAPI(app);
 startRoomCleanupJob();
 
-// === AI Chatbot ===
+// === AI Chatbot Route ===
 app.post("/api/chatbot", async (req, res) => {
   const { message } = req.body;
   if (!message) return res.status(400).json({ error: "Message is required" });
@@ -97,33 +74,26 @@ app.post("/api/chatbot", async (req, res) => {
   try {
     const ollama = spawn("ollama", ["run", "phi"]);
     const prompt = `You are a helpful assistant. Give a short and working code snippet in JavaScript for: ${message}`;
-    let response = "";
-    let responded = false;
+    let response = "", responded = false;
 
     const safeSend = (data) => {
-      if (responded) return;
-      res.status(200).json({ response: data });
-      responded = true;
-    };
-
-    ollama.stdout.on("data", (data) => {
-      response += data.toString();
-    });
-
-    ollama.on("close", () => safeSend(response));
-    ollama.on("error", (err) => {
-      console.error("Ollama error:", err);
       if (!responded) {
-        res.status(500).json({ error: "AI service unavailable" });
+        res.status(200).json({ response: data });
         responded = true;
       }
+    };
+
+    ollama.stdout.on("data", data => response += data.toString());
+    ollama.on("close", () => safeSend(response));
+    ollama.on("error", err => {
+      console.error("Ollama error:", err);
+      if (!responded) res.status(500).json({ error: "AI service unavailable" });
     });
 
     setTimeout(() => {
       if (!responded) {
         ollama.kill();
         res.status(504).json({ error: "AI request timed out" });
-        responded = true;
       }
     }, 15000);
 
@@ -135,7 +105,7 @@ app.post("/api/chatbot", async (req, res) => {
   }
 });
 
-// === Room Save and Load Endpoints ===
+// === Room Save/Load APIs ===
 app.post("/api/room/save", async (req, res) => {
   try {
     const { roomId, code, language, owner } = req.body;
@@ -169,7 +139,6 @@ app.get("/api/room/load/:roomId", async (req, res) => {
   try {
     const { roomId } = req.params;
     const room = await roomModel.findOne({ roomId });
-
     if (!room) return res.status(404).json({ error: "Room not found" });
 
     res.status(200).json({
@@ -196,7 +165,7 @@ app.get("/health", (req, res) => {
 // === Start the Server ===
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => {
-  console.log(`🚀 Server is running on http://localhost:${PORT}`);
+  console.log(`🚀 Server is running at http://localhost:${PORT}`);
 });
 
 // === Graceful Shutdown ===
