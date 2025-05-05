@@ -24,12 +24,12 @@ const Room = () => {
   const queryParams = new URLSearchParams(location.search);
   const usernameFromUrl = queryParams.get('username');
   
-  const socket = useSocket();  // Use socket from context
+  // Use the context-provided socket instead of managing it locally
+  const socket = useSocket();
   const codeRef = useRef(null);
   const [clients, setClients] = useState([]);
   const [code, setCode] = useState('');
   const [language, setLanguage] = useState('javascript');
-  const socketRef = useRef(null);
 
   const stateData = useMemo(() => location.state || {}, [location.state]);
   const [showVideoChat, setShowVideoChat] = useState(true);
@@ -67,166 +67,136 @@ const Room = () => {
     dropdownHover: darkMode ? "hover:bg-gray-700" : "hover:bg-gray-100",
   };
 
-  // Initialize socket connection
+  // Initialize socket connection and set up event handlers
   useEffect(() => {
-    const init = async () => {
-      setIsLoading(true);
+    if (!socket) {
+      console.log('Socket not available');
+      return;
+    }
+
+    setIsLoading(true);
+    
+    if (!roomId || !userData.name) {
+      setIsLoading(false);
+      navigate("/");
+      return;
+    }
+
+    // Set up socket event listeners
+    const handleJoined = ({ clients: newClients, username, socketId }) => {
+      console.log(`${username} joined, clients:`, newClients);
+      if (username !== userData.name) {
+        toast.success(`${username} joined the room`);
+      }
       
-      if (!roomId || !userData.name) {
+      // Ensure clients is always an array and properly formatted
+      if (Array.isArray(newClients)) {
+        // Make sure each client has username and socketId
+        const formattedClients = newClients.map(client => {
+          return typeof client === 'object' ? client : { 
+            socketId: typeof client === 'string' ? client : socketId,
+            username: username || 'Unknown'
+          };
+        });
+        
+        // Deduplicate clients by socketId
+        const uniqueClients = formattedClients.filter((client, index, self) => 
+          index === self.findIndex(c => c.socketId === client.socketId)
+        );
+        
+        console.log('Setting clients to:', uniqueClients);
+        setClients(uniqueClients);
         setIsLoading(false);
-        navigate("/");
-        return;
       }
-
-      try {
-        // Clear any existing socket reference
-        if (socketRef.current) {
-          socketRef.current.disconnect();
-        }
-
-        const newSocket = await initSocket();
-        socketRef.current = newSocket;
-
-        // Error handling
-        newSocket.on('connect_error', (err) => {
-          console.error('Socket connection error:', err);
-          toast.error('Socket connection failed');
-          setIsLoading(false);
+      
+      // Sync code for new joiner
+      if (username !== userData.name && codeRef.current) {
+        socket.emit(ACTIONS.SYNC_CODE, {
+          code: codeRef.current,
+          socketId,
         });
-        
-        newSocket.on('connect_failed', (err) => {
-          console.error('Socket connection failed:', err);
-          toast.error('Socket connection failed');
-          setIsLoading(false);
-        });
-
-        // Connection handling
-        newSocket.on('connect', () => {
-          console.log('Socket connected successfully');
-          
-          newSocket.emit(ACTIONS.JOIN, {
-            roomId,
-            username: userData.name,
-          });
-        });
-
-        newSocket.on(ACTIONS.JOINED, ({ clients, username, socketId }) => {
-          console.log(`${username} joined, clients:`, clients);
-          if (username !== userData.name) {
-            toast.success(`${username} joined the room`);
-          }
-          
-          // Ensure clients is always an array before processing
-          const clientsArray = Array.isArray(clients) ? clients : [];
-          
-          // Create a unique list of clients with proper deduplication
-          const uniqueClients = clientsArray.filter((client, index, self) => 
-            index === self.findIndex(c => c.socketId === client.socketId)
-          );
-          
-          // Update clients state with the unique list
-          setClients(uniqueClients);
-          setIsLoading(false);
-          
-          // Sync code for new joiner
-          if (username !== userData.name && codeRef.current) {
-            newSocket.emit(ACTIONS.SYNC_CODE, {
-              code: codeRef.current,
-              socketId,
-            });
-          }
-        });
-        
-
-        // User disconnected event
-        newSocket.on(ACTIONS.DISCONNECTED, ({ socketId, username }) => {
-          if (username) {
-            toast.success(`${username} left the room`);
-            setClients((prev) => prev.filter((client) => client.socketId !== socketId));
-          }
-        });
-
-        // Language change event
-        newSocket.on(ACTIONS.LANGUAGE_CHANGE, ({ language: newLang }) => {
-          setLanguage(newLang);
-        });
-        
-        // Code change event to sync code between clients
-        newSocket.on(ACTIONS.CODE_CHANGE, ({ code }) => {
-          if (code !== null) {
-            setCode(code);
-            codeRef.current = code;
-          }
-        });
-        
-        // Sync code event handler
-        newSocket.on(ACTIONS.SYNC_CODE, ({ code }) => {
-          if (code !== null) {
-            setCode(code);
-            codeRef.current = code;
-          }
-        });
-        
-        // Room joined confirmation
-        newSocket.on('room-joined', () => {
-          setIsRoomValid(true);
-          setIsLoading(false);
-          toast.success(`Joined room: ${userData.roomname || roomId}`);
-        });
-
-        // Room error handling
-        newSocket.on('room-not-found', () => {
-          console.error('Room not found');
-          toast.error('Room not found');
-          setIsLoading(false);
-          navigate('/');
-        });
-
-        newSocket.on('error', (error) => {
-          console.error('Socket error:', error);
-          toast.error(error?.message || 'Socket error');
-          setIsLoading(false);
-        });
-
-        // Manually emit the join event to ensure it happens
-        if (newSocket.connected) {
-          newSocket.emit(ACTIONS.JOIN, {
-            roomId,
-            username: userData.name,
-          });
-        }
-      } catch (error) {
-        console.error('Socket initialization error:', error);
-        toast.error('Failed to initialize socket connection');
-        setIsLoading(false);
       }
     };
 
-    init();
+    const handleDisconnected = ({ socketId, username }) => {
+      if (username) {
+        toast.success(`${username} left the room`);
+        setClients((prev) => prev.filter((client) => client.socketId !== socketId));
+      }
+    };
 
+    const handleLanguageChange = ({ language: newLang }) => {
+      setLanguage(newLang);
+    };
+    
+    const handleCodeChange = ({ code: newCode }) => {
+      if (newCode !== null) {
+        setCode(newCode);
+        codeRef.current = newCode;
+      }
+    };
+    
+    const handleSyncCode = ({ code: syncedCode }) => {
+      if (syncedCode !== null) {
+        setCode(syncedCode);
+        codeRef.current = syncedCode;
+        console.log('Code synced:', syncedCode.substring(0, 50) + '...');
+      }
+    };
+
+    const handleRoomJoined = () => {
+      setIsRoomValid(true);
+      setIsLoading(false);
+      toast.success(`Joined room: ${userData.roomname || roomId}`);
+    };
+
+    const handleRoomError = () => {
+      console.error('Room not found');
+      toast.error('Room not found');
+      setIsLoading(false);
+      navigate('/');
+    };
+
+    const handleError = (error) => {
+      console.error('Socket error:', error);
+      toast.error(error?.message || 'Socket error');
+      setIsLoading(false);
+    };
+
+    // Register event listeners
+    socket.on(ACTIONS.JOINED, handleJoined);
+    socket.on(ACTIONS.DISCONNECTED, handleDisconnected);
+    socket.on(ACTIONS.LANGUAGE_CHANGE, handleLanguageChange);
+    socket.on(ACTIONS.CODE_CHANGE, handleCodeChange);
+    socket.on(ACTIONS.SYNC_CODE, handleSyncCode);
+    socket.on('room-joined', handleRoomJoined);
+    socket.on('room-not-found', handleRoomError);
+    socket.on('error', handleError);
+
+    // Join room
+    socket.emit(ACTIONS.JOIN, {
+      roomId,
+      username: userData.name,
+    });
+
+    // Clean up function
     return () => {
-      if (socketRef.current) {
-        console.log('Disconnecting socket');
-        // Clean up event listeners
-        socketRef.current.off(ACTIONS.JOINED);
-        socketRef.current.off(ACTIONS.DISCONNECTED);
-        socketRef.current.off(ACTIONS.CODE_CHANGE);
-        socketRef.current.off(ACTIONS.LANGUAGE_CHANGE);
-        socketRef.current.off(ACTIONS.SYNC_CODE);
-        socketRef.current.off('room-joined');
-        socketRef.current.off('room-not-found');
-        socketRef.current.off('error');
-        
-        // Emit leave room event
-        socketRef.current.emit(ACTIONS.LEAVE_ROOM, {
-          roomId,
-          username: userData.name
-        });
-        
-        socketRef.current.disconnect();
-      }
+      socket.off(ACTIONS.JOINED, handleJoined);
+      socket.off(ACTIONS.DISCONNECTED, handleDisconnected);
+      socket.off(ACTIONS.CODE_CHANGE, handleCodeChange);
+      socket.off(ACTIONS.LANGUAGE_CHANGE, handleLanguageChange);
+      socket.off(ACTIONS.SYNC_CODE, handleSyncCode);
+      socket.off('room-joined', handleRoomJoined);
+      socket.off('room-not-found', handleRoomError);
+      socket.off('error', handleError);
+      
+      // Emit leave room event
+      socket.emit(ACTIONS.LEAVE_ROOM, {
+        roomId,
+        username: userData.name
+      });
     };
-  }, [roomId, userData.name, navigate]);
+  }, [roomId, userData.name, socket, navigate]);
   
   useEffect(() => {
     console.log("Current clients:", clients);
@@ -308,10 +278,18 @@ const Room = () => {
     verifyRoomAndUser();
   }, [roomId, navigate, stateData, usernameFromUrl]);
 
-  // Code change handler
+  // Code change handler - sends updates to all clients
   const handleCodeChange = (newCode) => {
-    setCode(newCode);
     codeRef.current = newCode;
+    setCode(newCode);
+    
+    // Only emit if we have a valid socket connection
+    if (socket?.connected) {
+      socket.emit(ACTIONS.CODE_CHANGE, {
+        roomId,
+        code: newCode,
+      });
+    }
   };
 
   // Handle participants updates with socket
@@ -321,30 +299,58 @@ const Room = () => {
     const handleParticipants = (list) => {
       console.log('Received participants:', list);
       setParticipants(list);
+      
+      // Update clients list from participants if available
+      if (Array.isArray(list) && list.length > 0) {
+        const formattedClients = list.map(p => ({
+          socketId: p.id || p.socketId,
+          username: p.name || p.username
+        }));
+        setClients(formattedClients);
+      }
     };
     
     const handleUserJoined = (user) => {
       console.log('User joined:', user);
-      toast.success(`${user.name} joined`);
+      toast.success(`${user.name || user.username} joined`);
+      
+      // Add the new user to clients list
+      if (user) {
+        setClients(prev => {
+          // Check if user already exists
+          const exists = prev.some(client => client.socketId === (user.id || user.socketId));
+          if (exists) return prev;
+          
+          // Add new user
+          return [...prev, {
+            socketId: user.id || user.socketId,
+            username: user.name || user.username
+          }];
+        });
+      }
     };
     
     const handleUserLeft = (user) => {
       console.log('User left:', user);
-      toast.success(`${user.name} left`);
+      if (user) {
+        toast.success(`${user.name || user.username} left`);
+        setClients(prev => prev.filter(client => 
+          client.socketId !== (user.id || user.socketId)
+        ));
+      }
     };
 
     socket.on("room-participants", handleParticipants);
     socket.on("user-joined", handleUserJoined);
     socket.on("user-left", handleUserLeft);
 
+    // Request participant list when joining
+    socket.emit("get-participants", { roomId });
+
     return () => {
       socket.off("room-participants", handleParticipants);
       socket.off("user-joined", handleUserJoined);
       socket.off("user-left", handleUserLeft);
-      
-      if (socket.connected) {
-        socket.emit("leave-room", { roomId });
-      }
     };
   }, [socket, isRoomValid, roomId]);
 
@@ -367,8 +373,8 @@ const Room = () => {
       setCode(content);
       codeRef.current = content;
       // Broadcast the code change
-      if (socketRef.current?.connected) {
-        socketRef.current.emit(ACTIONS.CODE_CHANGE, {
+      if (socket?.connected) {
+        socket.emit(ACTIONS.CODE_CHANGE, {
           roomId,
           code: content,
         });
@@ -401,8 +407,8 @@ const Room = () => {
   const toggleTerminal = () => setShowTerminal((prev) => !prev);
   
   const leaveRoom = () => {
-    if (socketRef.current?.connected) {
-      socketRef.current.emit(ACTIONS.LEAVE_ROOM, {
+    if (socket?.connected) {
+      socket.emit(ACTIONS.LEAVE_ROOM, {
         roomId,
         username: userData.name
       });
@@ -414,8 +420,8 @@ const Room = () => {
   const handleLanguageChange = (e) => {
     const newLanguage = e.target.value;
     setLanguage(newLanguage);
-    if (socketRef.current?.connected) {
-      socketRef.current.emit(ACTIONS.LANGUAGE_CHANGE, {
+    if (socket?.connected) {
+      socket.emit(ACTIONS.LANGUAGE_CHANGE, {
         roomId,
         language: newLanguage,
       });
@@ -598,7 +604,7 @@ const Room = () => {
               <h3 className="text-center">Connected Users</h3>
             </div>
             <div className="flex-grow overflow-y-auto p-2">
-              <UserList clients={clients} />
+              <UserList clients={clients} currentUser={userData.name} />
             </div>
             
             {/* Collapse sidebar button */}
@@ -630,10 +636,11 @@ const Room = () => {
           {/* Editor component */}
           <div className="flex-grow overflow-hidden">
             <Editor
-              socketRef={socketRef}
+              socketRef={socket}
               roomId={roomId}
               onCodeChange={handleCodeChange}
               language={language}
+              code={code}
             />
           </div>
         </div>
@@ -642,7 +649,7 @@ const Room = () => {
         {!chatCollapsed && (
           <div className={`flex flex-col w-1/4 ${theme.sidebar} border-l ${theme.border} transition-all duration-300`}>
             {/* Video chat section */}
-            <div className="flex flex-col h-full border-b border-gray-700 overflow-hidden">
+            <div className="flex flex-col h-1/2 border-b border-gray-700 overflow-hidden">
               <div className={`p-3 border-b ${theme.border} flex justify-between items-center`}>
                 <h3 className="font-semibold">Video Chat</h3>
                 <button 
@@ -654,18 +661,28 @@ const Room = () => {
               </div>
               {showVideoChat && (
                 <div className="flex-grow p-2 overflow-y-auto">
-                  <VideoChat darkMode={darkMode} />
+                  <VideoChat 
+                    darkMode={darkMode} 
+                    roomId={roomId} 
+                    userId={userId}
+                    userName={userData.name}
+                    socket={socket}
+                  />
                 </div>
               )}
             </div>
             
             {/* Text chat section */}
-            <div className="flex flex-col overflow-hidden">
+            <div className="flex flex-col h-1/2 overflow-hidden">
               <div className="flex-grow overflow-hidden">
-                <Chatbot darkMode={darkMode} />
+                <Chatbot 
+                  darkMode={darkMode} 
+                  roomId={roomId}
+                  userName={userData.name}
+                  socket={socket}
+                />
               </div>
             </div>
-            
             {/* Collapse chat button */}
             <button 
               className="absolute right-[24%] top-1/2 w-6 h-10 bg-gray-700 rounded-l-md flex items-center justify-center"
