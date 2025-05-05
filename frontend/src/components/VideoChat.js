@@ -1,9 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react';
 import AgoraRTC from 'agora-rtc-sdk-ng';
-import { Camera, Mic, MicOff, Monitor, Phone, Video, VideoOff } from 'lucide-react';
+import { Camera, Mic, MicOff, Monitor, Phone, Video, VideoOff, Grid, Layout } from 'lucide-react';
 
 // Move credentials to environment variables in production
 const APP_ID = '712f72b0c5ed413299df9bab345526f3';
+// Note: Using a static token for development only - should be generated from your server
 const TOKEN = '007eJxTYBCNrAvx06qOdnrhIttldk5feOunj21aQRteC6wXb/7k/0aBwdzQKM3cKMkg2TQ1xcTQ2MjSMiXNMikxydjE1NTILM34ar54RkMgI0PS5G/MjAwQCOJzMORklqUW5efnMjAAAFzlIEU=';
 const CHANNEL = 'liveroom';
 
@@ -15,10 +16,13 @@ const AgoraVideoChat = ({ roomId = CHANNEL, onError }) => {
   const [error, setError] = useState(null);
   const [remoteUsers, setRemoteUsers] = useState([]);
   const [layout, setLayout] = useState('grid'); // grid, sidebar
+  const [tokenExpired, setTokenExpired] = useState(false);
+  const [reconnectAttempts, setReconnectAttempts] = useState(0);
 
   const clientRef = useRef(null);
   const localVideoContainerRef = useRef(null);
   const localTrackRef = useRef({});
+  const mainRemoteContainerRef = useRef(null);
 
   // Initialize Agora client
   useEffect(() => {
@@ -89,39 +93,103 @@ const AgoraVideoChat = ({ roomId = CHANNEL, onError }) => {
 
     // Connection state changes
     clientRef.current.on('connection-state-change', (curState, prevState) => {
-      setConnectionState(curState);
+      console.log('Connection state changed:', prevState, '->', curState);
+      setConnectionState(curState.toLowerCase());
+      
       if (curState === 'DISCONNECTED') {
         setRemoteUsers([]);
+      } else if (curState === 'CONNECTED') {
+        // Reset reconnect attempts when successfully connected
+        setReconnectAttempts(0);
       }
+    });
+    
+    // Token privilege will expire
+    clientRef.current.on('token-privilege-will-expire', async () => {
+      console.warn('Token is about to expire. Attempting to renew...');
+      try {
+        // In a real app, you'd fetch a new token from your server
+        // For this example, we'll just show an error since we're using static tokens
+        setTokenExpired(true);
+        setError('Your session is about to expire. Please refresh the page to continue.');
+      } catch (err) {
+        handleError('Failed to renew token', err);
+      }
+    });
+    
+    // TOKEN expired
+    clientRef.current.on('token-privilege-did-expire', () => {
+      console.error('Token expired');
+      setTokenExpired(true);
+      setError('Your session has expired. Please refresh the page to continue.');
+      leaveChannel();
     });
   };
 
   // Join the video channel
   const joinChannel = async () => {
-    if (connectionState === 'connecting') return;
+    if (connectionState === 'connecting' || tokenExpired) return;
     
     setConnectionState('connecting');
     setError(null);
     
     try {
+      // Join the channel
       await clientRef.current.join(APP_ID, roomId || CHANNEL, TOKEN, null);
       
+      // Create local tracks
       const [audioTrack, videoTrack] = await AgoraRTC.createMicrophoneAndCameraTracks(
-        { encoderConfig: 'standard' },
-        { encoderConfig: 'standard', facingMode: 'user' }
+        { encoderConfig: { sampleRate: 48000, stereo: true, bitrate: 128 } },
+        { 
+          encoderConfig: { 
+            width: 640, 
+            height: 360, 
+            frameRate: 30, 
+            bitrateMax: 1000 
+          }, 
+          facingMode: 'user' 
+        }
       );
       
+      // Store local tracks
       localTrackRef.current = { audioTrack, videoTrack };
       
+      // Play local video
       if (localVideoContainerRef.current && videoTrack) {
         videoTrack.play(localVideoContainerRef.current);
       }
       
+      // Publish local tracks
       await clientRef.current.publish([audioTrack, videoTrack]);
       setConnectionState('connected');
     } catch (err) {
       setConnectionState('disconnected');
-      handleError('Failed to join video channel', err);
+      
+      // Handle specific error codes
+      if (err.code === 'INVALID_OPERATION') {
+        handleError('Failed to join - Channel might be full or unavailable', err);
+      } else if (err.code === 'OPERATION_ABORTED') {
+        handleError('Connection was interrupted', err);
+      } else if (err.code === 'INVALID_PARAMS') {
+        handleError('Invalid channel parameters', err);
+      } else if (err.code === 'DYNAMIC_KEY_TIMEOUT') {
+        setTokenExpired(true);
+        handleError('Your session token has expired. Please refresh the page', err);
+      } else {
+        handleError('Failed to join video channel', err);
+      }
+      
+      // Attempt reconnection for certain errors
+      if (['NETWORK_ERROR', 'OPERATION_ABORTED'].includes(err.code)) {
+        if (reconnectAttempts < 3) {
+          const delay = Math.pow(2, reconnectAttempts) * 1000;
+          console.log(`Attempting to reconnect in ${delay/1000} seconds...`);
+          setTimeout(() => {
+            setReconnectAttempts(prev => prev + 1);
+            joinChannel();
+          }, delay);
+        }
+      }
     }
   };
 
@@ -132,16 +200,19 @@ const AgoraVideoChat = ({ roomId = CHANNEL, onError }) => {
     try {
       const { audioTrack, videoTrack } = localTrackRef.current;
       
+      // Stop and close audio track
       if (audioTrack) {
         audioTrack.stop();
         audioTrack.close();
       }
       
+      // Stop and close video track
       if (videoTrack) {
         videoTrack.stop();
         videoTrack.close();
       }
       
+      // Leave the channel
       if (clientRef.current) {
         await clientRef.current.leave();
       }
@@ -178,27 +249,46 @@ const AgoraVideoChat = ({ roomId = CHANNEL, onError }) => {
     if (isScreenSharing) return;
     
     try {
-      const screenTrack = await AgoraRTC.createScreenVideoTrack();
+      // Create screen track
+      const screenTrack = await AgoraRTC.createScreenVideoTrack({
+        encoderConfig: {
+          width: 1920,
+          height: 1080,
+          frameRate: 15,
+          bitrateMax: 2500
+        }
+      });
       
+      // Unpublish camera track
       await clientRef.current.unpublish(localTrackRef.current.videoTrack);
       
+      // Stop and close camera track
       localTrackRef.current.videoTrack.stop();
       localTrackRef.current.videoTrack.close();
       
+      // Update local track reference
       localTrackRef.current.videoTrack = screenTrack;
+      
+      // Publish screen track
       await clientRef.current.publish(screenTrack);
       
+      // Play screen track
       if (localVideoContainerRef.current) {
         screenTrack.play(localVideoContainerRef.current);
       }
       
       setIsScreenSharing(true);
       
+      // Handle screen share ended
       screenTrack.on('track-ended', async () => {
         await stopScreenSharing();
       });
     } catch (err) {
-      handleError('Failed to share screen', err);
+      if (err.code === 'PERMISSION_DENIED') {
+        handleError('Screen sharing permission denied by user', err);
+      } else {
+        handleError('Failed to share screen', err);
+      }
     }
   };
 
@@ -209,17 +299,31 @@ const AgoraVideoChat = ({ roomId = CHANNEL, onError }) => {
     try {
       const screenTrack = localTrackRef.current.videoTrack;
       
+      // Unpublish screen track
       if (screenTrack) {
         await clientRef.current.unpublish(screenTrack);
         screenTrack.stop();
         screenTrack.close();
       }
       
-      const camTrack = await AgoraRTC.createCameraVideoTrack();
+      // Create camera track
+      const camTrack = await AgoraRTC.createCameraVideoTrack({
+        encoderConfig: { 
+          width: 640, 
+          height: 360, 
+          frameRate: 30, 
+          bitrateMax: 1000 
+        },
+        facingMode: 'user'
+      });
+      
+      // Update local track reference
       localTrackRef.current.videoTrack = camTrack;
       
+      // Publish camera track
       await clientRef.current.publish(camTrack);
       
+      // Play camera track
       if (localVideoContainerRef.current) {
         camTrack.play(localVideoContainerRef.current);
       }
@@ -242,6 +346,22 @@ const AgoraVideoChat = ({ roomId = CHANNEL, onError }) => {
     setLayout(layout === 'grid' ? 'sidebar' : 'grid');
   };
 
+  // Render avatar for video-disabled participants
+  const renderAvatar = (size = 'medium') => {
+    const sizeClass = size === 'large' ? 'h-16 w-16' : size === 'medium' ? 'h-8 w-8' : 'h-6 w-6';
+    const bgClass = size === 'large' ? 'p-6' : size === 'medium' ? 'p-3' : 'p-2';
+    
+    return (
+      <div className="absolute inset-0 flex items-center justify-center">
+        <div className={`bg-gray-700 rounded-full ${bgClass}`}>
+          <svg xmlns="http://www.w3.org/2000/svg" className={`text-gray-400 ${sizeClass}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+          </svg>
+        </div>
+      </div>
+    );
+  };
+
   // Render remote user videos
   const renderRemoteUsers = () => {
     return remoteUsers.map(user => (
@@ -249,7 +369,7 @@ const AgoraVideoChat = ({ roomId = CHANNEL, onError }) => {
         key={user.uid} 
         className="bg-gray-800 rounded-lg overflow-hidden relative"
         style={{
-          aspectRatio: '1/2',
+          aspectRatio: '16/9',
         }}
       >
         <div 
@@ -261,15 +381,7 @@ const AgoraVideoChat = ({ roomId = CHANNEL, onError }) => {
             }
           }}
         />
-        {!user.hasVideo && (
-          <div className="absolute inset-0 flex items-center justify-center">
-            <div className="bg-gray-700 p-3 rounded-full">
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-              </svg>
-            </div>
-          </div>
-        )}
+        {!user.hasVideo && renderAvatar('medium')}
         <div className="absolute bottom-2 left-2 flex items-center space-x-1">
           <div className={`h-2 w-2 rounded-full ${user.hasAudio ? 'bg-green-500' : 'bg-red-500'}`}></div>
           <span className="text-xs text-white bg-black bg-opacity-50 px-1 rounded">User {user.uid.toString().substr(-4)}</span>
@@ -281,10 +393,16 @@ const AgoraVideoChat = ({ roomId = CHANNEL, onError }) => {
   // Different layout rendering
   const renderVideoGrid = () => {
     let gridCols = "grid-cols-1";
-    if (remoteUsers.length === 1) {
+    const totalParticipants = remoteUsers.length + 1; // Include local user
+    
+    if (totalParticipants === 2) {
       gridCols = "grid-cols-2";
-    } else if (remoteUsers.length >= 2) {
-      gridCols = "grid-cols-2 md:grid-cols-3";
+    } else if (totalParticipants === 3) {
+      gridCols = "grid-cols-2";
+    } else if (totalParticipants === 4) {
+      gridCols = "grid-cols-2";
+    } else if (totalParticipants > 4) {
+      gridCols = "grid-cols-3";
     }
 
     return (
@@ -294,17 +412,9 @@ const AgoraVideoChat = ({ roomId = CHANNEL, onError }) => {
           <div 
             ref={localVideoContainerRef} 
             className="w-full h-full"
-            style={{ aspectRatio: '1/2' }}
+            style={{ aspectRatio: '16/9' }}
           />
-          {!videoEnabled && (
-            <div className="absolute inset-0 flex items-center justify-center">
-              <div className="bg-gray-700 p-3 rounded-full">
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                </svg>
-              </div>
-            </div>
-          )}
+          {!videoEnabled && renderAvatar('medium')}
           <div className="absolute bottom-2 left-2 flex items-center space-x-1">
             <div className={`h-2 w-2 rounded-full ${audioEnabled ? 'bg-green-500' : 'bg-red-500'}`}></div>
             <span className="text-xs text-white bg-black bg-opacity-50 px-1 rounded">You</span>
@@ -329,49 +439,56 @@ const AgoraVideoChat = ({ roomId = CHANNEL, onError }) => {
                 className="w-full h-full"
                 ref={el => {
                   const mainUser = remoteUsers[0];
-                  if (el && mainUser.hasVideo && mainUser.videoTrack && !el.hasChildNodes()) {
+                  if (el && mainUser && mainUser.hasVideo && mainUser.videoTrack && !el.querySelector('.video-player')) {
                     mainUser.videoTrack.play(`main-remote-video`);
                   }
                 }}
               />
-              {!remoteUsers[0].hasVideo && (
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <div className="bg-gray-700 p-6 rounded-full">
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-16 w-16 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                    </svg>
-                  </div>
-                </div>
-              )}
+              {remoteUsers[0] && !remoteUsers[0].hasVideo && renderAvatar('large')}
+              <div className="absolute bottom-2 left-2 flex items-center space-x-1">
+                <div className={`h-2 w-2 rounded-full ${remoteUsers[0] && remoteUsers[0].hasAudio ? 'bg-green-500' : 'bg-red-500'}`}></div>
+                <span className="text-xs text-white bg-black bg-opacity-50 px-1 rounded">
+                  User {remoteUsers[0] ? remoteUsers[0].uid.toString().substr(-4) : ''}
+                </span>
+              </div>
             </>
           ) : (
             <>
               <div 
-                ref={localVideoContainerRef} 
+                ref={el => {
+                  if (el) {
+                    localVideoContainerRef.current = el;
+                    if (localTrackRef.current.videoTrack) {
+                      localTrackRef.current.videoTrack.play(el);
+                    }
+                  }
+                }}
                 className="w-full h-full"
               />
-              {!videoEnabled && (
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <div className="bg-gray-700 p-6 rounded-full">
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-16 w-16 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                    </svg>
-                  </div>
-                </div>
-              )}
+              {!videoEnabled && renderAvatar('large')}
+              <div className="absolute bottom-2 left-2 flex items-center space-x-1">
+                <div className={`h-2 w-2 rounded-full ${audioEnabled ? 'bg-green-500' : 'bg-red-500'}`}></div>
+                <span className="text-xs text-white bg-black bg-opacity-50 px-1 rounded">You</span>
+              </div>
             </>
           )}
         </div>
         
         {/* Sidebar with other videos */}
-        <div className="w-64 space-y-2 overflow-y-auto">
+        <div className="w-64 space-y-2 overflow-y-auto flex flex-col">
           {/* Local video thumbnail */}
           {remoteUsers.length > 0 && (
             <div className="bg-gray-800 rounded-lg overflow-hidden relative h-48">
               <div 
-                ref={localVideoContainerRef} 
                 className="w-full h-full"
+                ref={el => {
+                  if (el && localTrackRef.current.videoTrack && !el.querySelector('.video-player')) {
+                    localVideoContainerRef.current = el;
+                    localTrackRef.current.videoTrack.play(el);
+                  }
+                }}
               />
+              {!videoEnabled && renderAvatar('small')}
               <div className="absolute bottom-1 left-1 text-xs bg-black bg-opacity-60 px-1 rounded text-white">
                 You
               </div>
@@ -385,11 +502,12 @@ const AgoraVideoChat = ({ roomId = CHANNEL, onError }) => {
                 id={`sidebar-remote-${user.uid}`} 
                 className="w-full h-full"
                 ref={el => {
-                  if (el && user.hasVideo && user.videoTrack && !el.hasChildNodes()) {
+                  if (el && user.hasVideo && user.videoTrack && !el.querySelector('.video-player')) {
                     user.videoTrack.play(`sidebar-remote-${user.uid}`);
                   }
                 }}
               />
+              {!user.hasVideo && renderAvatar('small')}
               <div className="absolute bottom-1 left-1 text-xs bg-black bg-opacity-60 px-1 rounded text-white">
                 User {user.uid.toString().substr(-4)}
               </div>
@@ -398,6 +516,31 @@ const AgoraVideoChat = ({ roomId = CHANNEL, onError }) => {
         </div>
       </div>
     );
+  };
+
+  // Check if we have permission to access camera and mic
+  const checkMediaPermissions = async () => {
+    try {
+      await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
+      return true;
+    } catch (err) {
+      if (err.name === 'NotAllowedError') {
+        handleError('Camera and microphone permissions denied. Please allow access to join the video chat.', err);
+      } else if (err.name === 'NotFoundError') {
+        handleError('No camera or microphone found. Please connect a device to join the video chat.', err);
+      } else {
+        handleError('Failed to access media devices', err);
+      }
+      return false;
+    }
+  };
+
+  // Enhanced join that checks permissions first
+  const handleJoin = async () => {
+    const hasPermissions = await checkMediaPermissions();
+    if (hasPermissions) {
+      joinChannel();
+    }
   };
 
   return (
@@ -410,14 +553,11 @@ const AgoraVideoChat = ({ roomId = CHANNEL, onError }) => {
             className="p-2 rounded-full hover:bg-gray-700 text-gray-300"
             title="Toggle Layout"
           >
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16m-7 6h7" />
-            </svg>
+            {layout === 'grid' ? <Layout className="h-5 w-5" /> : <Grid className="h-5 w-5" />}
           </button>
-          <div className="h-2 w-2 rounded-full mr-1 flex-shrink-0 
-            transition-colors duration-300
+          <div className={`h-2 w-2 rounded-full mr-1 flex-shrink-0 
             ${connectionState === 'connected' ? 'bg-green-500' : 
-              connectionState === 'connecting' ? 'bg-yellow-500' : 'bg-red-500'}"
+              connectionState === 'connecting' ? 'bg-yellow-500' : 'bg-red-500'}`}
           ></div>
           <span className="text-sm">
             {connectionState === 'connected' ? 'Connected' : 
@@ -427,8 +567,8 @@ const AgoraVideoChat = ({ roomId = CHANNEL, onError }) => {
       </div>
 
       {error && (
-        <div className="bg-red-600 p-2 text-sm">
-          {error}
+        <div className="bg-red-600 p-2 text-sm flex justify-between items-center">
+          <span>{error}</span>
           <button 
             className="ml-2 bg-white text-red-600 px-2 py-0.5 rounded text-xs"
             onClick={() => setError(null)}
@@ -446,9 +586,9 @@ const AgoraVideoChat = ({ roomId = CHANNEL, onError }) => {
         <div className="flex justify-center space-x-3">
           {connectionState === 'disconnected' ? (
             <button
-              onClick={joinChannel}
+              onClick={handleJoin}
               className="px-4 py-2 bg-green-600 hover:bg-green-700 rounded-full flex items-center"
-              disabled={connectionState === 'connecting'}
+              disabled={connectionState === 'connecting' || tokenExpired}
             >
               <Camera className="w-5 h-5 mr-1" />
               Join Video
